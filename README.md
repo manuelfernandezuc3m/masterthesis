@@ -1,2 +1,2 @@
-# masterthesis
-Code from my master thesis
+# Master thesis
+In the .rmd file you can find the code for my TFM. First of all, there is the graphic analysis detailed in the document. Subsequently, the analysis of the main components of each of the teams, with their respective correlation with the original variables and the common variables of each of the main components. Finally, the 6 models studied for each of the respective Champions teams appear, with their corresponding accuracy and confusion matrix.
