@@ -1,0 +1,3863 @@
+---
+title: "Master Thesis"
+author: "Manuel Fernández Martín"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+#CARGA DE LIBRERIAS
+```{r, include=FALSE}
+library(dplyr)
+#install.packages("tidymodels")
+library(tidymodels)
+library(tidyverse)
+library(rsample)
+library(recipes)
+library(tune)
+library(parsnip)
+library(workflows)
+library(ggplot2)
+library(gridExtra)
+library(caret)
+library(tm)
+library(lsa)
+library(LSAfun)
+set.seed(12345)
+install.packages("ggcorrplot")
+library(ggcorrplot)
+library(FactoMineR)
+library(factoextra) 
+install.packages("corpcor")
+library(corpcor)
+install.packages('kernlab')
+library(magrittr)
+library(dplyr)
+# Cargar el paquete de splines
+library(splines)
+# Cargar el paquete nnet para multinom
+library(nnet)
+# Cargar la librería e1071 para SVM
+library(e1071)
+library(cluster)
+set.seed(123)
+install.packages("xgboost")
+library(xgboost)
+install.packages(c('neuralnet','keras','tensorflow'),dependencies = T)
+library(neuralnet)
+set.seed(21345246)
+library(ordinal)
+
+```
+
+
+#ANALISIS GRAFICO
+```{r}
+data=read.csv("Laliga2020-21.csv", sep=";")
+#colnames(data)
+```
+
+```{r}
+data$result <- ifelse(data$Goals.for.against.ratio > 0, "Ganar",
+                            ifelse(data$Goals.for.against.ratio == 0, "Empatar", "Perder"))
+```
+
+```{r}
+dataforanalysis=data[data$match == "Season 2020-2021", ]
+dataforanalysiscor=dataforanalysis[, !(colnames(dataforanalysis) %in% c("Team", "match", "result"))]
+dataforanalysis$result=as.numeric(as.factor(dataforanalysis$result))
+a=cor(dataforanalysiscor, dataforanalysis$result)
+names(dataforanalysiscor)[which(abs(a) > 0.63)]
+
+```
+
+```{r}
+dataforanalysis=read.csv("Dataforanalysis.csv", sep=",")
+dataforanalysis$Team=factor(dataforanalysis$Team, levels = c("ATM", "RMA", "BAR","SFC","RSO", "RBB", "VIL", "CEL", "GRA", "ATH", "OSA", "CAD", "VCF", "LUD", "GTF", "ALV", "ECF", "HUE", "VLL", "EIB", "League average"))
+```
+
+
+```{r}
+ggplot(subset(dataforanalysis, Team != "League average"), aes(x = Team, y = Last.third.passes.completion.rate, fill = Team)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = mean(dataforanalysis$Last.third.passes.completion.rate[dataforanalysis$Team == "League average"]), color = "red", linetype = "dashed") +
+  labs(title = "Last third passes completion rate",
+       x = "Team",
+       y = "Rate") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "right") +  # Coloca la leyenda a la derecha
+  scale_fill_discrete(name = "Legend") +
+  guides(fill = guide_legend(ncol = 2))  # Divide la leyenda en dos columnas
+
+```
+
+```{r message=TRUE, warning=TRUE, paged.print=FALSE}
+ggplot(dataforanalysis, aes(x = Last.third.passes, y = Last.third.passes.completion.rate, color = Team)) +
+  geom_point() +
+  labs(title = "Last third passes vs rate",
+       x = "Last third passes",
+       y = "Rate") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+ggplot(subset(dataforanalysis, Team != "League average"), aes(x = Team, y = Passes.before.action.in.the.box, fill = Team)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = mean(dataforanalysis$Passes.before.action.in.the.box[dataforanalysis$Team == "League average"]), color = "red", linetype = "dashed") +
+  labs(title = "Passes before action in the box",
+       x = "Team",
+       y = "Rate") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "right") +  # Coloca la leyenda a la derecha
+  scale_fill_discrete(name = "Legend") +
+  guides(fill = guide_legend(ncol = 2))  # Divide la leyenda en dos columnas
+
+
+```
+
+```{r}
+ggplot(subset(dataforanalysis, Team != "League average"), aes(x = Team, y = Passes.to.box.after.pass.from.off.centre.advanced.area, fill = Team)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = mean(dataforanalysis$Passes.to.box.after.pass.from.off.centre.advanced.area[dataforanalysis$Team == "League average"]), color = "red", linetype = "dashed") +
+  labs(title = "Passes to box after pass from off center advanced area by team",
+       x = "Team",
+       y = "Rate") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "right") +  # Coloca la leyenda a la derecha
+  scale_fill_discrete(name = "Legend") +
+  guides(fill = guide_legend(ncol = 2))  # Divide la leyenda en dos columnas
+
+```
+
+```{r}
+ggplot(dataforanalysis, aes(x = Passes.to.box.after.pass.from.off.centre.advanced.area, y = For.against.possession.ratio, color = Team)) +
+  geom_point() +
+  labs(title = "Passes to box after pass from off centre advanced area vs for against possession ratio",
+       x = "Passes to box after pass from off centre advanced area",
+       y = "For against possession ratio") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 4),  # Ajustar tamaño de fuente
+        plot.title = element_text(hjust = 0.3, size = 10),  # Ajustar tamaño de fuente
+        plot.margin = margin(10, 10, 30, 10))  # Aumentar espacio en el área del gráfico
+```
+
+```{r}
+ggplot(subset(dataforanalysis, Team != "League average"), aes(x = Team, y = Ball.drives.under.pressure.completion.rate, fill = Team)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept = mean(dataforanalysis$Ball.drives.under.pressure.completion.rate[dataforanalysis$Team == "League average"]), color = "red", linetype = "dashed") +
+  labs(title = "Ball drives under pressure completion rate",
+       x = "Team",
+       y = "Rate") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = "right") +  # Coloca la leyenda a la derecha
+  scale_fill_discrete(name = "Legend") +
+  guides(fill = guide_legend(ncol = 2))  # Divide la leyenda en dos columnas
+```
+#PRE-PROCESSING
+Eliminamos el resumen de los equipos, ya que esta bastante correlacionado con el desarrollo de los partidos
+
+```{r}
+data <- data[data$match != "Season 2020-2021", ]
+```
+
+```{r}
+dataalv=data[data$Team == "ALV", ]
+dataath=data[data$Team == "ATH", ]
+databar=data[data$Team == "BAR", ]
+datacad=data[data$Team == "CAD", ]
+datacel=data[data$Team == "CEL", ]
+dataecf=data[data$Team == "ECF", ]
+dataeib=data[data$Team == "EIB", ]
+datagra=data[data$Team == "GRA", ]
+datagtf=data[data$Team == "GTF", ]
+datahue=data[data$Team == "HUE", ]
+datalud=data[data$Team == "LUD", ]
+dataosa=data[data$Team == "OSA", ]
+datarbb=data[data$Team == "RBB", ]
+datarma=data[data$Team == "RMA", ]
+datarso=data[data$Team == "RSO", ]
+datasfc=data[data$Team == "SFC", ]
+datavcf=data[data$Team == "VCF", ]
+datavil=data[data$Team == "VIL", ]
+datavll=data[data$Team == "VLL", ]
+dataatm=data[data$Team == "ATM", ]
+
+```
+
+-Separamos train/test
+
+```{r}
+# Lista de todos los dataframes
+data_frames <- list(dataalv, dataath, databar, datacad, datacel, dataecf, dataeib, datagra,
+                    datagtf, datahue, datalud, dataosa, datarbb, datarma, datarso, datasfc,
+                    datavcf, datavil, datavll, dataatm)
+
+# Función para dividir en train/test
+split_data <- function(df) {
+  train_data <- df[20:38, ]
+  test_data <- df[1:19, ]
+  return(list(train = train_data, test = test_data))
+}
+
+# Crear listas para almacenar los conjuntos de train y test
+train_data_list <- list()
+test_data_list <- list()
+
+# Iterar a través de cada dataframe, dividir y almacenar
+for (df in data_frames) {
+  split <- split_data(df)
+  train_data_list[[length(train_data_list) + 1]] <- split$train
+  test_data_list[[length(test_data_list) + 1]] <- split$test
+}
+
+# Crear nuevos dataframes con nombres modificados
+names_prefix <- c("alv", "ath", "bar", "cad", "cel", "ecf", "eib", "gra", "gtf", "hue",
+                  "lud", "osa", "rbb", "rma", "rso", "sfc", "vcf", "vil", "vll", "atm")
+
+for (i in 1:length(data_frames)) {
+  assign(paste0(names_prefix[i], "_train"), train_data_list[[i]])
+  assign(paste0(names_prefix[i], "_test"), test_data_list[[i]])
+}
+
+```
+
+-Standarize continuous vars
+
+```{r}
+for (prefix in names_prefix) {
+  assign(paste0("datacont", prefix, "_train"), get(paste0(prefix, "_train"))[, !(colnames(get(paste0(prefix, "_train"))) %in% c("Team", "match", "result"))])
+  assign(paste0("datacont", prefix, "_test"), get(paste0(prefix, "_test"))[, !(colnames(get(paste0(prefix, "_test"))) %in% c("Team", "match", "result"))])
+}
+```
+
+Me quito las variables con varianza 0
+
+```{r}
+for (prefix in names_prefix) {
+  var_train <- apply(get(paste0("datacont", prefix, "_train")), 2, var)
+  var_test <- apply(get(paste0("datacont", prefix, "_test")), 2, var)
+  
+  assign(paste0("varianzas_", prefix, "_train"), var_train)
+  assign(paste0("varianzas_", prefix, "_test"), var_test)
+}
+
+
+# Encontrar variables con varianza cero para cada conjunto de entrenamiento y prueba para todos los equipos
+for (prefix in names_prefix) {
+  var_train <- get(paste0("varianzas_", prefix, "_train"))
+  var_test <- get(paste0("varianzas_", prefix, "_test"))
+  
+  variables_con_varianza_cero_train <- names(var_train[var_train == 0])
+  variables_con_varianza_cero_test <- names(var_test[var_test == 0])
+  
+  assign(paste0("variables_con_varianza_cero_", prefix, "_train"), variables_con_varianza_cero_train)
+  assign(paste0("variables_con_varianza_cero_", prefix, "_test"), variables_con_varianza_cero_test)
+}
+
+
+# Crear dataframes sin variables de varianza cero para entrenamiento y prueba para todos los equipos
+for (prefix in names_prefix) {
+  vars_to_remove_train <- get(paste0("variables_con_varianza_cero_", prefix, "_train"))
+  vars_to_remove_test <- get(paste0("variables_con_varianza_cero_", prefix, "_test"))
+  
+  data_without_zero_var_train <- get(paste0("datacont", prefix, "_train"))[, !(names(get(paste0("datacont", prefix, "_train"))) %in% vars_to_remove_train)]
+  data_without_zero_var_test <- get(paste0("datacont", prefix, "_test"))[, !(names(get(paste0("datacont", prefix, "_test"))) %in% vars_to_remove_test)]
+  
+  assign(paste0("data_sin_varianza_cero_", prefix, "_train"), data_without_zero_var_train)
+  assign(paste0("data_sin_varianza_cero_", prefix, "_test"), data_without_zero_var_test)
+}
+
+```
+
+```{r}
+# Aplicar estandarización y convertir en dataframes a los conjuntos de entrenamiento y prueba sin varianza cero para todos los equipos
+for (prefix in names_prefix) {
+  data_without_zero_var_train <- get(paste0("data_sin_varianza_cero_", prefix, "_train"))
+  data_std_train <- scale(data_without_zero_var_train)
+  data_std_train <- as.data.frame(data_std_train)
+  
+  data_without_zero_var_test <- get(paste0("data_sin_varianza_cero_", prefix, "_test"))
+  data_std_test <- scale(data_without_zero_var_test)
+  data_std_test <- as.data.frame(data_std_test)
+  
+  assign(paste0("data_std_", prefix, "_train"), data_std_train)
+  assign(paste0("data_std_", prefix, "_test"), data_std_test)
+}
+
+
+```
+
+#PCA
+
+
+##BARCELONA
+
+ 
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_bar=prcomp(data_std_bar_train)
+variance_explained <- pca_cor_bar$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_bar_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_bar_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_bar_train= pcaMethods::nlpca(data_std_bar_train, maxSteps =1000, nPcs = 15)
+nlpca_bar_train
+fitted_data_bar_train=fitted(nlpca_bar_train,data_std_bar_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_bar_train=fitted_data_bar_train[,1:7]
+correlations_bar=cor(data_sin_varianza_cero_bar_train,pca_use_bar_train)
+correlations1_bar=correlations_bar[,1]
+correlations2_bar=correlations_bar[,2]
+correlations3_bar=correlations_bar[,3]
+correlations4_bar=correlations_bar[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+threshold=0.75
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_bar <- which(abs(correlations1_bar) > threshold)
+
+correlations1_bar[correlation_indices1_bar]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_bar <- which(abs(correlations2_bar) > threshold)
+
+correlations2_bar[correlation_indices2_bar]
+
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_bar <- which(abs(correlations3_bar) > threshold)
+
+correlations3_bar[correlation_indices3_bar]
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_bar <- which(abs(correlations4_bar) > threshold)
+
+correlations4_bar[correlation_indices4_bar]
+
+
+```
+
+
+##ALAVÉS
+
+
+### pca convencional
+
+```{r}
+set.seed(21345246)
+pca_cor_alv=prcomp(data_std_alv_train)
+variance_explained <- pca_cor_alv$sdev^2
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+num_components_cor <- which.min(cumulative_variance < 0.85)
+num_components_cor
+```
+
+10 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_alv_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_alv_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+num_components_kernel <- which.min(cumulative_variance < 0.85) 
+num_components_kernel
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_alv_train= pcaMethods::nlpca(data_std_alv_train, maxSteps =1000, nPcs = 15)
+nlpca_alv_train
+fitted_data_alv_train=fitted(nlpca_alv_train,data_std_alv_train)
+
+```
+
+### correlaciones
+
+```{r}
+pca_use_alv_train=fitted_data_alv_train[,1:6]
+correlations_alv=cor(data_sin_varianza_cero_alv_train,pca_use_alv_train)
+correlations1_alv=correlations_alv[,1]
+correlations2_alv=correlations_alv[,2]
+correlations3_alv=correlations_alv[,3]
+correlations4_alv=correlations_alv[,4]
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_alv <- which(abs(correlations1_alv) > threshold)
+
+correlations1_alv[correlation_indices1_alv]
+
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_alv <- which(abs(correlations2_alv) > threshold)
+
+correlations2_alv[correlation_indices2_alv]
+
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_alv <- which(abs(correlations3_alv) > threshold)
+
+correlations3_alv[correlation_indices3_alv]
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_alv <- which(abs(correlations4_alv) > threshold)
+
+correlations4_alv[correlation_indices4_alv]
+
+```
+##ATHLETIC 
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_ath=prcomp(data_std_ath_train)
+variance_explained <- pca_cor_ath$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_ath_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_ath_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_ath_train= pcaMethods::nlpca(data_std_ath_train, maxSteps =1000, nPcs = 15)
+fitted_data_ath_train=fitted(nlpca_ath_train,data_std_ath_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_ath_train=fitted_data_ath_train[,1:7]
+correlations_ath=cor(data_sin_varianza_cero_ath_train,pca_use_ath_train)
+correlations1_ath=correlations_ath[,1]
+correlations2_ath=correlations_ath[,2]
+correlations3_ath=correlations_ath[,3]
+correlations4_ath=correlations_ath[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_ath <- which(abs(correlations1_ath) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_ath <- which(abs(correlations2_ath) > threshold)
+
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_ath <- which(abs(correlations3_ath) > threshold)
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_ath <- which(abs(correlations4_ath) > threshold)
+```
+
+##CADIZ 
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_cad=prcomp(data_std_cad_train)
+variance_explained <- pca_cor_cad$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_cad_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_cad_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_cad_train= pcaMethods::nlpca(data_std_cad_train, maxSteps =1000, nPcs = 15)
+fitted_data_cad_train=fitted(nlpca_cad_train,data_std_cad_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_cad_train=fitted_data_cad_train[,1:7]
+correlations_cad=cor(data_sin_varianza_cero_cad_train,pca_use_cad_train)
+correlations1_cad=correlations_cad[,1]
+correlations2_cad=correlations_cad[,2]
+correlations3_cad=correlations_cad[,3]
+correlations4_cad=correlations_cad[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_cad <- which(abs(correlations1_cad) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_cad <- which(abs(correlations2_cad) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_cad <- which(abs(correlations3_cad) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_cad <- which(abs(correlations4_cad) > threshold)
+```
+
+
+##CELTA 
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_cel=prcomp(data_std_cel_train)
+variance_explained <- pca_cor_cel$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_cel_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_cel_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_cel_train= pcaMethods::nlpca(data_std_cel_train, maxSteps =1000, nPcs = 15)
+fitted_data_cel_train=fitted(nlpca_cel_train,data_std_cel_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_cel_train=fitted_data_cel_train[,1:7]
+correlations_cel=cor(data_sin_varianza_cero_cel_train,pca_use_cel_train)
+correlations1_cel=correlations_cel[,1]
+correlations2_cel=correlations_cel[,2]
+correlations3_cel=correlations_cel[,3]
+correlations4_cel=correlations_cel[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_cel <- which(abs(correlations1_cel) > threshold)
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_cel <- which(abs(correlations2_cel) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_cel <- which(abs(correlations3_cel) > threshold)
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_cel <- which(abs(correlations4_cel) > threshold)
+
+```
+
+##ELCHE
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_ecf=prcomp(data_std_ecf_train)
+variance_explained <- pca_cor_ecf$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_ecf_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_ecf_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_ecf_train= pcaMethods::nlpca(data_std_ecf_train, maxSteps =1000, nPcs = 15)
+fitted_data_ecf_train=fitted(nlpca_ecf_train,data_std_ecf_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_ecf_train=fitted_data_ecf_train[,1:7]
+correlations_ecf=cor(data_sin_varianza_cero_ecf_train,pca_use_ecf_train)
+correlations1_ecf=correlations_ecf[,1]
+correlations2_ecf=correlations_ecf[,2]
+correlations3_ecf=correlations_ecf[,3]
+correlations4_ecf=correlations_ecf[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_ecf <- which(abs(correlations1_ecf) > threshold)
+
+
+
+
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_ecf <- which(abs(correlations2_ecf) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_ecf <- which(abs(correlations3_ecf) > threshold)
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_ecf <- which(abs(correlations4_ecf) > threshold)
+
+
+```
+
+##EIBAR 
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_eib=prcomp(data_std_eib_train)
+variance_explained <- pca_cor_eib$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_eib_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_eib_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_eib_train= pcaMethods::nlpca(data_std_eib_train, maxSteps =1000, nPcs = 15)
+fitted_data_eib_train=fitted(nlpca_eib_train,data_std_eib_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_eib_train=fitted_data_eib_train[,1:7]
+correlations_eib=cor(data_sin_varianza_cero_eib_train,pca_use_eib_train)
+correlations1_eib=correlations_eib[,1]
+correlations2_eib=correlations_eib[,2]
+correlations3_eib=correlations_eib[,3]
+correlations4_eib=correlations_eib[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_eib <- which(abs(correlations1_eib) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_eib <- which(abs(correlations2_eib) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_eib <- which(abs(correlations3_eib) > threshold)
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_eib <- which(abs(correlations4_eib) > threshold)
+
+```
+
+##GRANADA
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_gra=prcomp(data_std_gra_train)
+variance_explained <- pca_cor_gra$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_gra_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_gra_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_gra_train= pcaMethods::nlpca(data_std_gra_train, maxSteps =1000, nPcs = 15)
+fitted_data_gra_train=fitted(nlpca_gra_train,data_std_gra_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_gra_train=fitted_data_gra_train[,1:7]
+correlations_gra=cor(data_sin_varianza_cero_gra_train,pca_use_gra_train)
+correlations1_gra=correlations_gra[,1]
+correlations2_gra=correlations_gra[,2]
+correlations3_gra=correlations_gra[,3]
+correlations4_gra=correlations_gra[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_gra <- which(abs(correlations1_gra) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_gra <- which(abs(correlations2_gra) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_gra <- which(abs(correlations3_gra) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_gra <- which(abs(correlations4_gra) > threshold)
+
+```
+
+##GETAFE 
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_gtf=prcomp(data_std_gtf_train)
+variance_explained <- pca_cor_gtf$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_gtf_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_gtf_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_gtf_train= pcaMethods::nlpca(data_std_gtf_train, maxSteps =1000, nPcs = 15)
+fitted_data_gtf_train=fitted(nlpca_gtf_train,data_std_gtf_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_gtf_train=fitted_data_gtf_train[,1:7]
+correlations_gtf=cor(data_sin_varianza_cero_gtf_train,pca_use_gtf_train)
+correlations1_gtf=correlations_gtf[,1]
+correlations2_gtf=correlations_gtf[,2]
+correlations3_gtf=correlations_gtf[,3]
+correlations4_gtf=correlations_gtf[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_gtf <- which(abs(correlations1_gtf) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_gtf <- which(abs(correlations2_gtf) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_gtf <- which(abs(correlations3_gtf) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_gtf <- which(abs(correlations4_gtf) > threshold)
+```
+
+##HUESCA
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_hue=prcomp(data_std_hue_train)
+variance_explained <- pca_cor_hue$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_hue_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_hue_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_hue_train= pcaMethods::nlpca(data_std_hue_train, maxSteps =1000, nPcs = 15)
+fitted_data_hue_train=fitted(nlpca_hue_train,data_std_hue_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_hue_train=fitted_data_hue_train[,1:7]
+correlations_hue=cor(data_sin_varianza_cero_hue_train,pca_use_hue_train)
+correlations1_hue=correlations_hue[,1]
+correlations2_hue=correlations_hue[,2]
+correlations3_hue=correlations_hue[,3]
+correlations4_hue=correlations_hue[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_hue <- which(abs(correlations1_hue) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_hue <- which(abs(correlations2_hue) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_hue <- which(abs(correlations3_hue) > threshold)
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_hue <- which(abs(correlations4_hue) > threshold)
+
+
+```
+
+##LEVANTE
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_lud=prcomp(data_std_lud_train)
+variance_explained <- pca_cor_lud$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_lud_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_lud_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_lud_train= pcaMethods::nlpca(data_std_lud_train, maxSteps =1000, nPcs = 15)
+fitted_data_lud_train=fitted(nlpca_lud_train,data_std_lud_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_lud_train=fitted_data_lud_train[,1:7]
+correlations_lud=cor(data_sin_varianza_cero_lud_train,pca_use_lud_train)
+correlations1_lud=correlations_lud[,1]
+correlations2_lud=correlations_lud[,2]
+correlations3_lud=correlations_lud[,3]
+correlations4_lud=correlations_lud[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_lud <- which(abs(correlations1_lud) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_lud <- which(abs(correlations2_lud) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_lud <- which(abs(correlations3_lud) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_lud <- which(abs(correlations4_lud) > threshold)
+```
+
+##OSASUNA
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_osa=prcomp(data_std_osa_train)
+variance_explained <- pca_cor_osa$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_osa_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_osa_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_osa_train= pcaMethods::nlpca(data_std_osa_train, maxSteps =1000, nPcs = 15)
+fitted_data_osa_train=fitted(nlpca_osa_train,data_std_osa_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_osa_train=fitted_data_osa_train[,1:7]
+correlations_osa=cor(data_sin_varianza_cero_osa_train,pca_use_osa_train)
+correlations1_osa=correlations_osa[,1]
+correlations2_osa=correlations_osa[,2]
+correlations3_osa=correlations_osa[,3]
+correlations4_osa=correlations_osa[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_osa <- which(abs(correlations1_osa) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_osa <- which(abs(correlations2_osa) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_osa <- which(abs(correlations3_osa) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_osa <- which(abs(correlations4_osa) > threshold)
+```
+
+##BETIS
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_rbb=prcomp(data_std_rbb_train)
+variance_explained <- pca_cor_rbb$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_rbb_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_rbb_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_rbb_train= pcaMethods::nlpca(data_std_rbb_train, maxSteps =1000, nPcs = 15)
+fitted_data_rbb_train=fitted(nlpca_rbb_train,data_std_rbb_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_rbb_train=fitted_data_rbb_train[,1:7]
+correlations_rbb=cor(data_sin_varianza_cero_rbb_train,pca_use_rbb_train)
+correlations1_rbb=correlations_rbb[,1]
+correlations2_rbb=correlations_rbb[,2]
+correlations3_rbb=correlations_rbb[,3]
+correlations4_rbb=correlations_rbb[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_rbb <- which(abs(correlations1_rbb) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_rbb <- which(abs(correlations2_rbb) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_rbb <- which(abs(correlations3_rbb) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_rbb <- which(abs(correlations4_rbb) > threshold)
+```
+
+##REAL MADRID
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+pca_cor_rma=prcomp(data_std_rma_train)
+variance_explained <- pca_cor_rma$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+```
+
+10 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_rma_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_rma_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_rma_train= pcaMethods::nlpca(data_std_rma_train, maxSteps =1000, nPcs = 15)
+fitted_data_rma_train=fitted(nlpca_rma_train,data_std_rma_train)
+
+```
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_rma_train=fitted_data_rma_train[,1:7]
+correlations_rma=cor(data_sin_varianza_cero_rma_train,pca_use_rma_train)
+correlations1_rma=correlations_rma[,1]
+correlations2_rma=correlations_rma[,2]
+correlations3_rma=correlations_rma[,3]
+correlations4_rma=correlations_rma[,4]
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_rma <- which(abs(correlations1_rma) > threshold)
+
+correlations1_rma[correlation_indices1_rma]
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_rma <- which(abs(correlations2_rma) > threshold)
+
+correlations2_rma[correlation_indices2_rma]
+
+
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_rma <- which(abs(correlations3_rma) > threshold)
+
+correlations3_rma[correlation_indices3_rma]
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_rma <- which(abs(correlations4_rma) > threshold)
+
+correlations4_rma[correlation_indices4_rma]
+
+
+```
+
+##REAL SOCIEDAD 
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_rso=prcomp(data_std_rso_train)
+variance_explained <- pca_cor_rso$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_rso_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_rso_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_rso_train= pcaMethods::nlpca(data_std_rso_train, maxSteps =1000, nPcs = 15)
+fitted_data_rso_train=fitted(nlpca_rso_train,data_std_rso_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_rso_train=fitted_data_rso_train[,1:7]
+correlations_rso=cor(data_sin_varianza_cero_rso_train,pca_use_rso_train)
+correlations1_rso=correlations_rso[,1]
+correlations2_rso=correlations_rso[,2]
+correlations3_rso=correlations_rso[,3]
+correlations4_rso=correlations_rso[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_rso <- which(abs(correlations1_rso) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_rso <- which(abs(correlations2_rso) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_rso <- which(abs(correlations3_rso) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_rso <- which(abs(correlations4_rso) > threshold)
+```
+
+##SEVILLA
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+pca_cor_sfc=prcomp(data_std_sfc_train)
+variance_explained <- pca_cor_sfc$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+```
+
+10 principales componenetes para explicar el 85% de la varianza
+
+
+###kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_sfc_train, kernel = "laplacedot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_sfc_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_sfc_train= pcaMethods::nlpca(data_std_sfc_train, maxSteps =1000, nPcs = 15)
+fitted_data_sfc_train=fitted(nlpca_sfc_train,data_std_sfc_train)
+
+```
+
+### correlaciones
+
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_sfc_train=fitted_data_sfc_train[,1:6]
+correlations_sfc=cor(data_sin_varianza_cero_sfc_train,pca_use_sfc_train)
+correlations1_sfc=correlations_sfc[,1]
+correlations2_sfc=correlations_sfc[,2]
+correlations3_sfc=correlations_sfc[,3]
+correlations4_sfc=correlations_sfc[,4]
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_sfc <- which(abs(correlations1_sfc) > threshold)
+
+correlations1_sfc[correlation_indices1_sfc]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_sfc <- which(abs(correlations2_sfc) > threshold)
+
+correlations2_sfc[correlation_indices2_sfc]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_sfc <- which(abs(correlations3_sfc) > threshold)
+
+correlations3_sfc[correlation_indices3_sfc]
+
+```
+
+Seleccionamos las variables que tienen más de un 75% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_sfc <- which(abs(correlations4_sfc) > threshold)
+
+correlations4_sfc[correlation_indices4_sfc]
+```
+
+##VALENCIA 
+
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_vcf=prcomp(data_std_vcf_train)
+variance_explained <- pca_cor_vcf$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_vcf_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_vcf_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_vcf_train= pcaMethods::nlpca(data_std_vcf_train, maxSteps =1000, nPcs = 15)
+fitted_data_vcf_train=fitted(nlpca_vcf_train,data_std_vcf_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_vcf_train=fitted_data_vcf_train[,1:7]
+correlations_vcf=cor(data_sin_varianza_cero_vcf_train,pca_use_vcf_train)
+correlations1_vcf=correlations_vcf[,1]
+correlations2_vcf=correlations_vcf[,2]
+correlations3_vcf=correlations_vcf[,3]
+correlations4_vcf=correlations_vcf[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_vcf <- which(abs(correlations1_vcf) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_vcf <- which(abs(correlations2_vcf) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_vcf <- which(abs(correlations3_vcf) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_vcf <- which(abs(correlations4_vcf) > threshold)
+```
+
+## VILLAREAL 
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_vil=prcomp(data_std_vil_train)
+variance_explained <- pca_cor_vil$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_vil_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_vil_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_vil_train= pcaMethods::nlpca(data_std_vil_train, maxSteps =1000, nPcs = 15)
+fitted_data_vil_train=fitted(nlpca_vil_train,data_std_vil_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_vil_train=fitted_data_vil_train[,1:7]
+correlations_vil=cor(data_sin_varianza_cero_vil_train,pca_use_vil_train)
+correlations1_vil=correlations_vil[,1]
+correlations2_vil=correlations_vil[,2]
+correlations3_vil=correlations_vil[,3]
+correlations4_vil=correlations_vil[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_vil <- which(abs(correlations1_vil) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_vil <- which(abs(correlations2_vil) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_vil <- which(abs(correlations3_vil) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_vil <- which(abs(correlations4_vil) > threshold)
+```
+
+
+##VALLADOLID
+
+### pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+set.seed(21345246)
+pca_cor_vll=prcomp(data_std_vll_train)
+variance_explained <- pca_cor_vll$sdev^2
+variance_explained
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+cumulative_variance
+
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_vll_train, kernel = "rbfdot")
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_vll_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_vll_train= pcaMethods::nlpca(data_std_vll_train, maxSteps =1000, nPcs = 15)
+fitted_data_vll_train=fitted(nlpca_vll_train,data_std_vll_train)
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_vll_train=fitted_data_vll_train[,1:7]
+correlations_vll=cor(data_sin_varianza_cero_vll_train,pca_use_vll_train)
+correlations1_vll=correlations_vll[,1]
+correlations2_vll=correlations_vll[,2]
+correlations3_vll=correlations_vll[,3]
+correlations4_vll=correlations_vll[,4]
+
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_vll <- which(abs(correlations1_vll) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la segunda componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_vll <- which(abs(correlations2_vll) > threshold)
+```
+
+Seleccionamos las variables que tienen más de un 75% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_vll <- which(abs(correlations3_vll) > threshold)
+```
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_vll <- which(abs(correlations4_vll) > threshold)
+```
+
+
+
+
+##ATLETICO DE MADRID
+
+
+
+###pca convencional
+Calculamos en primer lugar el PCA convencional con la matriz de correlación
+
+
+```{r}
+pca_cor_atm=prcomp(data_std_atm_train)
+variance_explained <- pca_cor_atm$sdev^2
+cumulative_variance <- cumsum(variance_explained) / sum(variance_explained)
+variance_explained
+cumulative_variance
+```
+
+13 principales componenetes para explicar el 85% de la varianza
+
+
+### kernel pca
+
+```{r}
+library(kernlab)
+# Realiza el KPCA en tus datos
+kpca_result <- kpca(~., data = data_std_atm_train, kernel = "rbfdot")
+
+# Obtiene los vectores de soporte
+support_vectors <- kpca_result@xmatrix
+
+# Obtiene la matriz de datos original
+data_matrix <- as.matrix(data_std_atm_train)
+
+# Calcula los productos internos entre los vectores de soporte y los datos originales
+gram_matrix_approx <- as.matrix(support_vectors) %*% t(data_matrix)
+
+# Calcula los autovalores de la matriz de Gram aproximada
+eigenvalues <- eigen(gram_matrix_approx)$values
+
+# Calcula la varianza explicada de cada componente principal
+variance_explained2 <- eigenvalues / sum(eigenvalues)
+variance_explained2
+cumulative_variance2 <- cumsum(variance_explained2) / sum(variance_explained2)
+cumulative_variance2
+```
+
+
+### nlpca (neural network)
+
+```{r}
+set.seed(21345246)
+nlpca_atm_train= pcaMethods::nlpca(data_std_atm_train, maxSteps =1000, nPcs = 15)
+fitted_data_atm_train=fitted(nlpca_atm_train,data_std_atm_train)
+
+```
+
+### correlaciones
+Vamos a pasar ahora a realizar las correlaciones entre el metodo el elegido (PCA lineal y las variables originales)
+
+```{r}
+pca_use_atm_train=fitted_data_atm_train[,1:7]
+correlations_atm=cor(data_sin_varianza_cero_atm_train,pca_use_atm_train)
+correlations1_atm=correlations_atm[,1]
+correlations2_atm=correlations_atm[,2]
+correlations3_atm=correlations_atm[,3]
+correlations4_atm=correlations_atm[,4]
+```
+
+Seleccionamos las variables que tienen más de un 80% con la primera componente principal
+
+```{r}
+
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices1_atm <- which(abs(correlations1_atm) > threshold)
+
+
+correlations1_atm[correlation_indices1_atm]
+```
+
+Seleccionamos las variables que tienen más de un 80% con la segunda componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices2_atm <- which(abs(correlations2_atm) > threshold)
+
+correlations2_atm[correlation_indices2_atm]
+```
+
+Seleccionamos las variables que tienen más de un 80% con la tercera componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices3_atm <- which(abs(correlations3_atm) > threshold)
+
+correlations3_atm[correlation_indices3_atm]
+```
+
+Seleccionamos las variables que tienen más de un 80% con la cuarta componente principal
+
+```{r}
+# Encontrar las ubicaciones de las correlaciones que cumplen con el umbral
+correlation_indices4_atm <- which(abs(correlations4_atm) > threshold)
+
+correlations4_atm[correlation_indices4_atm]
+```
+
+##CORRELACIONES EN COMUN POR GRUPOS
+
+### 1-4
+
+1º PC:
+
+```{r}
+
+arb=intersect(names(correlation_indices1_atm), intersect(names(correlation_indices1_rma), names(correlation_indices1_bar)))
+ars=intersect(names(correlation_indices1_atm), intersect(names(correlation_indices1_rma), names(correlation_indices1_sfc)))
+rbs=intersect(names(correlation_indices1_rma), intersect(names(correlation_indices1_bar), names(correlation_indices1_sfc)))
+abs=intersect(names(correlation_indices1_atm), intersect(names(correlation_indices1_bar), names(correlation_indices1_sfc)))
+
+total=union(arb,union (ars, union(rbs,abs)))
+total
+
+
+```
+2º PC:
+
+```{r}
+
+arb=intersect(names(correlation_indices2_atm), intersect(names(correlation_indices2_rma), names(correlation_indices2_bar)))
+ars=intersect(names(correlation_indices2_atm), intersect(names(correlation_indices2_rma), names(correlation_indices2_sfc)))
+rbs=intersect(names(correlation_indices2_rma), intersect(names(correlation_indices2_bar), names(correlation_indices2_sfc)))
+abs=intersect(names(correlation_indices2_atm), intersect(names(correlation_indices2_bar), names(correlation_indices2_sfc)))
+
+total=union(arb,union (ars, union(rbs,abs)))
+total
+
+```
+
+3ºPC:
+```{r}
+
+arb=intersect(names(correlation_indices3_atm), intersect(names(correlation_indices3_rma), names(correlation_indices3_bar)))
+ars=intersect(names(correlation_indices3_atm), intersect(names(correlation_indices3_rma), names(correlation_indices3_sfc)))
+rbs=intersect(names(correlation_indices3_rma), intersect(names(correlation_indices3_bar), names(correlation_indices3_sfc)))
+abs=intersect(names(correlation_indices3_atm), intersect(names(correlation_indices3_bar), names(correlation_indices3_sfc)))
+
+total=union(arb,union (ars, union(rbs,abs)))
+total
+
+```
+4º PC:
+
+```{r}
+
+arb=intersect(names(correlation_indices4_atm), intersect(names(correlation_indices4_rma), names(correlation_indices4_bar)))
+ars=intersect(names(correlation_indices4_atm), intersect(names(correlation_indices4_rma), names(correlation_indices4_sfc)))
+rbs=intersect(names(correlation_indices4_rma), intersect(names(correlation_indices4_bar), names(correlation_indices4_sfc)))
+abs=intersect(names(correlation_indices4_atm), intersect(names(correlation_indices4_bar), names(correlation_indices4_sfc)))
+
+total=union(arb,union (ars, union(rbs,abs)))
+total
+
+```
+
+### 4-10
+
+1ºPC:
+```{r}
+rbvc=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_vil), names(correlation_indices1_cel))))
+rbvg=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_vil), names(correlation_indices1_gra))))
+rbva=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_vil), names(correlation_indices1_ath))))
+rbgc=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_gra), names(correlation_indices1_cel))))
+rbac=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_ath), names(correlation_indices1_cel))))
+rbga=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_ath), names(correlation_indices1_gra))))
+rgvc=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_gra), intersect(names(correlation_indices1_vil), names(correlation_indices1_cel))))
+ravc=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_ath), intersect(names(correlation_indices1_vil), names(correlation_indices1_cel))))
+ravg=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_ath), intersect(names(correlation_indices1_vil), names(correlation_indices1_gra))))
+racg=intersect(names(correlation_indices1_rso), intersect(names(correlation_indices1_ath), intersect(names(correlation_indices1_cel), names(correlation_indices1_gra))))
+gbvc=intersect(names(correlation_indices1_gra), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_vil), names(correlation_indices1_cel))))
+abvc=intersect(names(correlation_indices1_ath), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_vil), names(correlation_indices1_cel))))
+abvg=intersect(names(correlation_indices1_ath), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_vil), names(correlation_indices1_gra))))
+abcg=intersect(names(correlation_indices1_ath), intersect(names(correlation_indices1_rbb), intersect(names(correlation_indices1_cel), names(correlation_indices1_gra))))
+avcg=intersect(names(correlation_indices1_ath), intersect(names(correlation_indices1_vil), intersect(names(correlation_indices1_cel), names(correlation_indices1_gra))))
+
+
+total=union(rbvc,union (rbvg, union(rbva,union(rbgc, union(rbac, union (rbga, union(rgvc, union(ravc, union(ravg, union(racg, union(gbvc, union(abvc, union(abvg, union(abcg, avcg))))))))))))))
+total
+
+```
+
+2ºPC:
+
+```{r}
+rbvc=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_vil), names(correlation_indices2_cel))))
+rbvg=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_vil), names(correlation_indices2_gra))))
+rbva=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_vil), names(correlation_indices2_ath))))
+rbgc=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_gra), names(correlation_indices2_cel))))
+rbac=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_ath), names(correlation_indices2_cel))))
+rbga=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_ath), names(correlation_indices2_gra))))
+rgvc=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_gra), intersect(names(correlation_indices2_vil), names(correlation_indices2_cel))))
+ravc=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_ath), intersect(names(correlation_indices2_vil), names(correlation_indices2_cel))))
+ravg=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_ath), intersect(names(correlation_indices2_vil), names(correlation_indices2_gra))))
+racg=intersect(names(correlation_indices2_rso), intersect(names(correlation_indices2_ath), intersect(names(correlation_indices2_cel), names(correlation_indices2_gra))))
+gbvc=intersect(names(correlation_indices2_gra), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_vil), names(correlation_indices2_cel))))
+abvc=intersect(names(correlation_indices2_ath), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_vil), names(correlation_indices2_cel))))
+abvg=intersect(names(correlation_indices2_ath), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_vil), names(correlation_indices2_gra))))
+abcg=intersect(names(correlation_indices2_ath), intersect(names(correlation_indices2_rbb), intersect(names(correlation_indices2_cel), names(correlation_indices2_gra))))
+avcg=intersect(names(correlation_indices2_ath), intersect(names(correlation_indices2_vil), intersect(names(correlation_indices2_cel), names(correlation_indices2_gra))))
+
+
+total=union(rbvc,union (rbvg, union(rbva,union(rbgc, union(rbac, union (rbga, union(rgvc, union(ravc, union(ravg, union(racg, union(gbvc, union(abvc, union(abvg, union(abcg, avcg))))))))))))))
+total
+
+```
+
+3ºPC:
+
+```{r}
+rbvc=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_vil), names(correlation_indices3_cel))))
+rbvg=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_vil), names(correlation_indices3_gra))))
+rbva=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_vil), names(correlation_indices3_ath))))
+rbgc=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_gra), names(correlation_indices3_cel))))
+rbac=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_ath), names(correlation_indices3_cel))))
+rbga=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_ath), names(correlation_indices3_gra))))
+rgvc=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_gra), intersect(names(correlation_indices3_vil), names(correlation_indices3_cel))))
+ravc=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_ath), intersect(names(correlation_indices3_vil), names(correlation_indices3_cel))))
+ravg=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_ath), intersect(names(correlation_indices3_vil), names(correlation_indices3_gra))))
+racg=intersect(names(correlation_indices3_rso), intersect(names(correlation_indices3_ath), intersect(names(correlation_indices3_cel), names(correlation_indices3_gra))))
+gbvc=intersect(names(correlation_indices3_gra), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_vil), names(correlation_indices3_cel))))
+abvc=intersect(names(correlation_indices3_ath), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_vil), names(correlation_indices3_cel))))
+abvg=intersect(names(correlation_indices3_ath), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_vil), names(correlation_indices3_gra))))
+abcg=intersect(names(correlation_indices3_ath), intersect(names(correlation_indices3_rbb), intersect(names(correlation_indices3_cel), names(correlation_indices3_gra))))
+avcg=intersect(names(correlation_indices3_ath), intersect(names(correlation_indices3_vil), intersect(names(correlation_indices3_cel), names(correlation_indices3_gra))))
+
+
+total=union(rbvc,union (rbvg, union(rbva,union(rbgc, union(rbac, union (rbga, union(rgvc, union(ravc, union(ravg, union(racg, union(gbvc, union(abvc, union(abvg, union(abcg, avcg))))))))))))))
+total
+
+```
+
+
+4ºPC:
+```{r}
+rbvc=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_vil), names(correlation_indices4_cel))))
+rbvg=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_vil), names(correlation_indices4_gra))))
+rbva=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_vil), names(correlation_indices4_ath))))
+rbgc=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_gra), names(correlation_indices4_cel))))
+rbac=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_ath), names(correlation_indices4_cel))))
+rbga=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_ath), names(correlation_indices4_gra))))
+rgvc=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_gra), intersect(names(correlation_indices4_vil), names(correlation_indices4_cel))))
+ravc=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_ath), intersect(names(correlation_indices4_vil), names(correlation_indices4_cel))))
+ravg=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_ath), intersect(names(correlation_indices4_vil), names(correlation_indices4_gra))))
+racg=intersect(names(correlation_indices4_rso), intersect(names(correlation_indices4_ath), intersect(names(correlation_indices4_cel), names(correlation_indices4_gra))))
+gbvc=intersect(names(correlation_indices4_gra), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_vil), names(correlation_indices4_cel))))
+abvc=intersect(names(correlation_indices4_ath), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_vil), names(correlation_indices4_cel))))
+abvg=intersect(names(correlation_indices4_ath), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_vil), names(correlation_indices4_gra))))
+abcg=intersect(names(correlation_indices4_ath), intersect(names(correlation_indices4_rbb), intersect(names(correlation_indices4_cel), names(correlation_indices4_gra))))
+avcg=intersect(names(correlation_indices4_ath), intersect(names(correlation_indices4_vil), intersect(names(correlation_indices4_cel), names(correlation_indices4_gra))))
+
+
+total=union(rbvc,union (rbvg, union(rbva,union(rbgc, union(rbac, union (rbga, union(rgvc, union(ravc, union(ravg, union(racg, union(gbvc, union(abvc, union(abvg, union(abcg, avcg))))))))))))))
+total
+
+```
+
+
+### 10-16
+
+1ºPC
+
+```{r}
+ocvl=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_vcf), names(correlation_indices1_lud))))
+ocvg=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_vcf), names(correlation_indices1_gtf))))
+ocva=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_vcf), names(correlation_indices1_alv))))
+ocgl=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_gtf), names(correlation_indices1_lud))))
+ocal=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_alv), names(correlation_indices1_lud))))
+ocga=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_alv), names(correlation_indices1_gtf))))
+ogvl=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_gtf), intersect(names(correlation_indices1_vcf), names(correlation_indices1_lud))))
+oavl=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_alv), intersect(names(correlation_indices1_vcf), names(correlation_indices1_lud))))
+oavg=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_alv), intersect(names(correlation_indices1_vcf), names(correlation_indices1_gtf))))
+oalg=intersect(names(correlation_indices1_osa), intersect(names(correlation_indices1_alv), intersect(names(correlation_indices1_lud), names(correlation_indices1_gtf))))
+gcvl=intersect(names(correlation_indices1_gtf), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_vcf), names(correlation_indices1_lud))))
+acvl=intersect(names(correlation_indices1_alv), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_vcf), names(correlation_indices1_lud))))
+acvg=intersect(names(correlation_indices1_alv), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_vcf), names(correlation_indices1_gtf))))
+aclg=intersect(names(correlation_indices1_alv), intersect(names(correlation_indices1_cad), intersect(names(correlation_indices1_lud), names(correlation_indices1_gtf))))
+avlg=intersect(names(correlation_indices1_alv), intersect(names(correlation_indices1_vcf), intersect(names(correlation_indices1_lud), names(correlation_indices1_gtf))))
+
+
+total=union(ocvl,union (ocvg, union(ocva,union(oavg, union(ocgl, union (ocal, union(ocga, union(ogvl, union(oavl, union(oalg, union(gbvc, union(gcvl, union(acvl, union(oavg, avcg))))))))))))))
+total
+
+```
+2º principal componente:
+```{r}
+ocvl=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_vcf), names(correlation_indices2_lud))))
+ocvg=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_vcf), names(correlation_indices2_gtf))))
+ocva=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_vcf), names(correlation_indices2_alv))))
+ocgl=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_gtf), names(correlation_indices2_lud))))
+ocal=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_alv), names(correlation_indices2_lud))))
+ocga=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_alv), names(correlation_indices2_gtf))))
+ogvl=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_gtf), intersect(names(correlation_indices2_vcf), names(correlation_indices2_lud))))
+oavl=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_alv), intersect(names(correlation_indices2_vcf), names(correlation_indices2_lud))))
+oavg=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_alv), intersect(names(correlation_indices2_vcf), names(correlation_indices2_gtf))))
+oalg=intersect(names(correlation_indices2_osa), intersect(names(correlation_indices2_alv), intersect(names(correlation_indices2_lud), names(correlation_indices2_gtf))))
+gcvl=intersect(names(correlation_indices2_gtf), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_vcf), names(correlation_indices2_lud))))
+acvl=intersect(names(correlation_indices2_alv), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_vcf), names(correlation_indices2_lud))))
+acvg=intersect(names(correlation_indices2_alv), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_vcf), names(correlation_indices2_gtf))))
+aclg=intersect(names(correlation_indices2_alv), intersect(names(correlation_indices2_cad), intersect(names(correlation_indices2_lud), names(correlation_indices2_gtf))))
+avlg=intersect(names(correlation_indices2_alv), intersect(names(correlation_indices2_vcf), intersect(names(correlation_indices2_lud), names(correlation_indices2_gtf))))
+
+
+total=union(ocvl,union (ocvg, union(ocva,union(oavg, union(ocgl, union (ocal, union(ocga, union(ogvl, union(oavl, union(oalg, union(gbvc, union(gcvl, union(acvl, union(oavg, avcg))))))))))))))
+total
+
+```
+
+3º principal componente:
+
+```{r}
+ocvl=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_vcf), names(correlation_indices3_lud))))
+ocvg=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_vcf), names(correlation_indices3_gtf))))
+ocva=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_vcf), names(correlation_indices3_alv))))
+ocgl=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_gtf), names(correlation_indices3_lud))))
+ocal=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_alv), names(correlation_indices3_lud))))
+ocga=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_alv), names(correlation_indices3_gtf))))
+ogvl=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_gtf), intersect(names(correlation_indices3_vcf), names(correlation_indices3_lud))))
+oavl=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_alv), intersect(names(correlation_indices3_vcf), names(correlation_indices3_lud))))
+oavg=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_alv), intersect(names(correlation_indices3_vcf), names(correlation_indices3_gtf))))
+oalg=intersect(names(correlation_indices3_osa), intersect(names(correlation_indices3_alv), intersect(names(correlation_indices3_lud), names(correlation_indices3_gtf))))
+gcvl=intersect(names(correlation_indices3_gtf), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_vcf), names(correlation_indices3_lud))))
+acvl=intersect(names(correlation_indices3_alv), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_vcf), names(correlation_indices3_lud))))
+acvg=intersect(names(correlation_indices3_alv), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_vcf), names(correlation_indices3_gtf))))
+aclg=intersect(names(correlation_indices3_alv), intersect(names(correlation_indices3_cad), intersect(names(correlation_indices3_lud), names(correlation_indices3_gtf))))
+avlg=intersect(names(correlation_indices3_alv), intersect(names(correlation_indices3_vcf), intersect(names(correlation_indices3_lud), names(correlation_indices3_gtf))))
+
+
+total=union(ocvl,union (ocvg, union(ocva,union(oavg, union(ocgl, union (ocal, union(ocga, union(ogvl, union(oavl, union(oalg, union(gbvc, union(gcvl, union(acvl, union(oavg, avcg))))))))))))))
+total
+
+```
+
+4ºPC:
+
+```{r}
+ocvl=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_vcf), names(correlation_indices4_lud))))
+ocvg=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_vcf), names(correlation_indices4_gtf))))
+ocva=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_vcf), names(correlation_indices4_alv))))
+ocgl=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_gtf), names(correlation_indices4_lud))))
+ocal=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_alv), names(correlation_indices4_lud))))
+ocga=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_alv), names(correlation_indices4_gtf))))
+ogvl=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_gtf), intersect(names(correlation_indices4_vcf), names(correlation_indices4_lud))))
+oavl=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_alv), intersect(names(correlation_indices4_vcf), names(correlation_indices4_lud))))
+oavg=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_alv), intersect(names(correlation_indices4_vcf), names(correlation_indices4_gtf))))
+oalg=intersect(names(correlation_indices4_osa), intersect(names(correlation_indices4_alv), intersect(names(correlation_indices4_lud), names(correlation_indices4_gtf))))
+gcvl=intersect(names(correlation_indices4_gtf), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_vcf), names(correlation_indices4_lud))))
+acvl=intersect(names(correlation_indices4_alv), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_vcf), names(correlation_indices4_lud))))
+acvg=intersect(names(correlation_indices4_alv), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_vcf), names(correlation_indices4_gtf))))
+aclg=intersect(names(correlation_indices4_alv), intersect(names(correlation_indices4_cad), intersect(names(correlation_indices4_lud), names(correlation_indices4_gtf))))
+avlg=intersect(names(correlation_indices4_alv), intersect(names(correlation_indices4_vcf), intersect(names(correlation_indices4_lud), names(correlation_indices4_gtf))))
+
+
+total=union(ocvl,union (ocvg, union(ocva,union(oavg, union(ocgl, union (ocal, union(ocga, union(ogvl, union(oavl, union(oalg, union(gbvc, union(gcvl, union(acvl, union(oavg, avcg))))))))))))))
+total
+
+```
+
+
+
+
+### 16-20
+
+1º principal componente
+```{r}
+
+eeih=intersect(names(correlation_indices1_ecf), intersect(names(correlation_indices1_eib), names(correlation_indices1_hue)))
+eeiv=intersect(names(correlation_indices1_ecf), intersect(names(correlation_indices1_eib), names(correlation_indices1_vll)))
+eihv=intersect(names(correlation_indices1_eib), intersect(names(correlation_indices1_hue), names(correlation_indices1_vll)))
+ehv=intersect(names(correlation_indices1_ecf), intersect(names(correlation_indices1_hue), names(correlation_indices1_vll)))
+
+total=union(eeih,union (eeiv, union(eihv,ehv)))
+total
+```
+
+2º principal componente
+```{r}
+
+eeih=intersect(names(correlation_indices2_ecf), intersect(names(correlation_indices2_eib), names(correlation_indices2_hue)))
+eeiv=intersect(names(correlation_indices2_ecf), intersect(names(correlation_indices2_eib), names(correlation_indices2_vll)))
+eihv=intersect(names(correlation_indices2_eib), intersect(names(correlation_indices2_hue), names(correlation_indices2_vll)))
+ehv=intersect(names(correlation_indices2_ecf), intersect(names(correlation_indices2_hue), names(correlation_indices2_vll)))
+
+total=union(eeih,union (eeiv, union(eihv,ehv)))
+total
+
+```
+3º Principal componente
+
+```{r}
+
+eeih=intersect(names(correlation_indices3_ecf), intersect(names(correlation_indices3_eib), names(correlation_indices3_hue)))
+eeiv=intersect(names(correlation_indices3_ecf), intersect(names(correlation_indices3_eib), names(correlation_indices3_vll)))
+eihv=intersect(names(correlation_indices3_eib), intersect(names(correlation_indices3_hue), names(correlation_indices3_vll)))
+ehv=intersect(names(correlation_indices3_ecf), intersect(names(correlation_indices3_hue), names(correlation_indices3_vll)))
+
+total=union(eeih,union (eeiv, union(eihv,ehv)))
+total
+
+```
+4º principal componente 
+
+```{r}
+
+eeih=intersect(names(correlation_indices4_ecf), intersect(names(correlation_indices4_eib), names(correlation_indices4_hue)))
+eeiv=intersect(names(correlation_indices4_ecf), intersect(names(correlation_indices4_eib), names(correlation_indices4_vll)))
+eihv=intersect(names(correlation_indices4_eib), intersect(names(correlation_indices4_hue), names(correlation_indices4_vll)))
+ehv=intersect(names(correlation_indices4_ecf), intersect(names(correlation_indices4_hue), names(correlation_indices4_vll)))
+
+total=union(eeih,union (eeiv, union(eihv,ehv)))
+total
+
+```
+
+
+# MODELOS
+
+## BARCELONA
+
+
+1.- En primer lugar unificamos el fichero train 
+
+```{r}
+pca_use_df_bar_train <- as.data.frame(pca_use_bar_train)
+
+# Crear un nuevo dataframe con la variable 753 y el archivo pca_use
+bar_train_unified <- pca_use_df_bar_train %>%
+  mutate(variable_result = bar_train$result)
+
+# Convertir la variable_result en valores numéricos
+bar_train_unified$variable_result_factor <- factor(bar_train_unified$variable_result)
+
+```
+
+2.-Aplicamos pca al test y unificamos 
+
+
+```{r}
+set.seed(21345246)
+nlpca_bar_test= pcaMethods::nlpca(data_std_bar_test, maxSteps =1000, nPcs = 15)
+fitted_data_bar_test=fitted(nlpca_bar_test,data_std_bar_test)
+
+pca_use_bar_test <- as.data.frame(fitted_data_bar_test[,1:7])
+
+# Crear un nuevo dataframe con la variable 753 y el archivo pca_use
+bar_test_unified <- pca_use_bar_test %>%
+  mutate(variable_result = bar_test$result)
+
+# Convertir la variable_result en valores numéricos
+bar_test_unified$variable_result_factor <- factor(bar_test_unified$variable_result)
+```
+### regresion ordinal
+
+
+```{r}
+set.seed(21345246)
+
+linkfunction=c("logit", "probit", "cloglog", "loglog", "cauchit", "Aranda-Ordaz", "log-gamma")
+# Realizar la regresión lineal
+
+regression_model_bar <-  clm(variable_result_factor ~ V1 + V2 + V3 + V4 + V5 + V6 + V7, data = bar_train_unified, link="cloglog")
+
+# Obtener las predicciones ordenadas
+predictions_rl <- predict(regression_model_bar, newdata = bar_test_unified, type = "class")
+# Convertir las predicciones a factor
+predictions_rl_factor <- factor(predictions_rl$fit, levels = levels(bar_test_unified$variable_result_factor))
+
+# Crear la matriz de confusión
+confusion_matrix <- table(bar_test_unified$variable_result_factor, predictions_rl_factor)
+
+# Mostrar la matriz de confusión
+print(confusion_matrix)
+
+```
+
+
+### regresión multilogistica
+
+
+  Predecimos 
+  
+```{r}
+set.seed(21345246)
+
+# Ajustar el modelo de regresión logística multinomial
+multinomial_model <- multinom(factor(variable_result) ~ V1 + V2 + V3 + V4 + V5 + V6 + V7, data = bar_train_unified)
+# Realizar predicciones en bar_test_unified
+predictions_log_reg <- predict(multinomial_model, newdata = bar_test_unified)
+
+data_splines_bar_test <- data_splines_bar_test %>%
+  mutate(predictions_log_reg = predictions_log_reg)
+
+# Crear la matriz de confusión
+confusion_matrix <- table(bar_test_unified$variable_result, predictions_log_reg)
+
+# Mostrar la matriz de confusión
+print(confusion_matrix)
+
+# Calcular la precisión (accuracy)
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+
+# Mostrar la precisión
+print(accuracy)
+```
+
+### spline
+
+```{r}
+set.seed(21345246)
+# Crear términos de spline para las variables predictoras
+spline_V1 <- ns(bar_train_unified$V1, df=3)  # Aquí se utiliza un spline cúbico con 3 grados de libertad
+spline_V2 <- ns(bar_train_unified$V2, df=3)
+spline_V3 <- ns(bar_train_unified$V3, df=3)
+spline_V4 <- ns(bar_train_unified$V4, df=3)
+spline_V5 <- ns(bar_train_unified$V5, df=3)
+spline_V6 <- ns(bar_train_unified$V6, df=3)
+spline_V7 <- ns(bar_train_unified$V7, df=3)
+
+
+# Crear un data frame con los términos de spline y la variable objetivo
+data_splines_bar_train <- data.frame(spline_V1, spline_V2, spline_V3, spline_V4,spline_V5, spline_V6, spline_V7, variable_result = bar_train_unified$variable_result, variable_result_factor=bar_train_unified$variable_result_factor)
+
+# Realizar la regresión utilizando términos de spline
+regression_model_spline_bar <- multinom(variable_result ~ spline_V1 + spline_V2 + spline_V3 +spline_V4+spline_V5+spline_V6+spline_V7, data = data_splines_bar_train)
+
+# Crear términos de spline para las variables predictoras en el conjunto de prueba
+spline_V1 <- ns(bar_test_unified$V1, df=3)
+spline_V2 <- ns(bar_test_unified$V2, df=3)
+spline_V3 <- ns(bar_test_unified$V3, df=3)
+spline_V4<- ns(bar_test_unified$V4, df=3)
+spline_V5 <- ns(bar_test_unified$V5, df=3)
+spline_V6 <- ns(bar_test_unified$V6, df=3)
+spline_V7 <- ns(bar_test_unified$V7, df=3)
+
+# Crear un data frame con los términos de spline y la variable objetivo para el conjunto de prueba
+data_splines_bar_test <- data.frame(spline_V1, spline_V2, spline_V3, spline_V4, spline_V5, spline_V6, spline_V7, variable_result = bar_test_unified$variable_result, variable_result_factor = bar_test_unified$variable_result_factor)
+# Realizar predicciones en el conjunto de prueba
+predictions_splines <- predict(regression_model_spline_bar, newdata = data_splines_bar_test, type = "class")
+# Crear la matriz de confusión
+confusion_matrix_splines_bar <- table(data_splines_bar_test$variable_result, predictions_splines)
+print(confusion_matrix_splines_bar)
+
+```
+
+
+### svm 
+
+```{r}
+
+set.seed(21345246)
+
+# Definir una cuadrícula de valores para los hiperparámetros a explorar
+tuning_grid <- expand.grid(C =  c(0.01, 0.1, 1, 10, 100), gamma =  c(0.001, 0.01, 0.1, 1), degree=c(1,2,3,4,5,6,7,8,9,10))
+
+# Realizar la búsqueda de hiperparámetros y entrenar el modelo SVM
+best_accuracy <- 0
+best_svm_model <- NULL
+best_gamma <- NULL
+#degree=tuning_grid$degree[i]
+for (i in 1:nrow(tuning_grid)) {
+  svm_model <- svm(factor(variable_result) ~ V1 + V2 + V3 + V4 + V5 + V6 + V7, data = bar_train_unified,
+                   kernel = "polynomial",  degree=tuning_grid$degree[i], cost = tuning_grid$C[i], gamma = tuning_grid$gamma[i])
+    
+    predictions_val <- predict(svm_model, newdata = bar_test_unified)
+    confusion_matrix_val <- table(bar_test_unified$variable_result, predictions_val)
+    accuracy_val <- sum(diag(confusion_matrix_val)) / sum(confusion_matrix_val)
+
+  if (accuracy_val > best_accuracy) {
+    best_accuracy <- accuracy_val
+    best_svm_model <- svm_model
+    best_gamma <- tuning_grid$gamma[i]
+  }
+}
+
+# Mostrar el modelo con los mejores hiperparámetros
+print(best_svm_model)
+
+# Mostrar el valor de gamma seleccionado
+print(paste("Mejor valor de gamma:", best_gamma))
+
+# Mostrar el modelo con los mejores hiperparámetros
+print(best_svm_model)
+
+# Realizar predicciones en bar_test_unified
+predictions_test <- predict(best_svm_model, newdata = bar_test_unified)
+
+# Agregar las predicciones al conjunto de datos
+bar_test_unified <- cbind(bar_test_unified, predictions_test)
+
+# Calcular la matriz de confusión y precisión en los datos de prueba
+confusion_matrix_test <- table(bar_test_unified$variable_result, predictions_test)
+accuracy_test <- sum(diag(confusion_matrix_test)) / sum(confusion_matrix_test)
+
+# Mostrar la matriz de confusión y precisión en los datos de prueba
+print(confusion_matrix_test)
+print(accuracy_test)
+
+```
+### redes neuronales
+
+
+```{r}
+set.seed(21345246)
+
+# Valores de hiperparámetros
+hidden_layers <- list(c(4, 2), c(6, 3), c(8, 4),c(16,8), c(32,16), c(64,32), c(100,50))
+optimization_algorithms <- c( "rprop-", "rprop+", "sag", "slr")
+error_functions=c('sse')
+threshold=c(0.01, 0.1, 0.25, 0.5)
+best_accuracy=0
+# Realizar la búsqueda de hiperparámetros
+for (hidden in hidden_layers) {
+  for (algorithm in optimization_algorithms) {
+    for (error in error_functions) {
+      for (threshold in threshold) {
+      modelo_neural_net=neuralnet(variable_result_factor ~ V1+V2+V3+V4+V5+V6+V7, data=bar_train_unified, hidden=hidden, algorithm = algorithm, err.fct = error, threshold = threshold)
+pred <- predict(modelo_neural_net, bar_test_unified)
+labels <- c("perder", "empatar", "ganar")
+prediction_label <- data.frame(max.col(pred)) %>%     
+mutate(pred=labels[max.col.pred.]) %>% select(2) %>% unlist()
+confusion_matrix= table(bar_test_unified$variable_result, prediction_label)
+      
+ print(confusion_matrix)
+ print(list(hidden = hidden, algorithm = algorithm, threshold=threshold))
+      }
+    }
+      }
+}
+
+
+```
+### xgb boost
+
+```{r}
+# Convertir la variable_result en valores numéricos
+bar_train_unified$variable_result_numeric <- ifelse(bar_train_unified$variable_result == "Perder", 0,
+                                       ifelse(bar_train_unified$variable_result == "Empatar", 1, 2))
+
+bar_test_unified$variable_result_numeric <- ifelse(bar_test_unified$variable_result == "Perder", 0,
+                                       ifelse(bar_test_unified$variable_result == "Empatar", 1, 2))
+bar_train_unified_mat <- 
+  bar_train_unified %>% 
+  select(-c(variable_result_numeric,variable_result, variable_result_factor)) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = bar_train_unified$variable_result_numeric)
+
+bar_test_unified_mat <- 
+  bar_test_unified %>% 
+  select(c(V1,V2,V3,V4,V5,V6,V7)) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = bar_test_unified$variable_result_numeric)
+```
+
+
+
+
+```{r}
+library(xgboost)
+set.seed(21345246)
+
+# Valores de hiperparámetros
+nrounds_vals <- c(10, 5, 100)
+max_depth_vals <- c(2, 4, 6)
+eta_vals <- c(0.1, 0.3, 0.5)
+lambda_vals <- c(0, 0.1, 1)  # Valores para la regularización L2 (lambda)
+alpha_vals <- c(0, 0.1, 1)   # Valores para la regularización L1 (alpha)
+
+# Inicializar variables para almacenar el mejor modelo y su precisión
+best_accuracy <- 0
+best_params <- NULL
+
+# Realizar la búsqueda de hiperparámetros
+for (nrounds in nrounds_vals) {
+  for (max_depth in max_depth_vals) {
+    for (eta in eta_vals) {
+      for (lambda in lambda_vals){
+        for (alpha in alpha_vals){
+      # Crear el modelo XGBoost con los hiperparámetros actuales
+      xgb_model <- xgboost(data = bar_train_unified_mat, objective = "multi:softmax", num_class = 3,
+                           nrounds = nrounds, max_depth = max_depth, eta = eta, lambda = lambda, alpha = alpha)
+      
+      # Realizar las predicciones en el conjunto de prueba
+      predxgbboost <- predict(xgb_model, bar_test_unified_mat)
+      
+      # Convertir las predicciones en categorías
+      pred_categories <- ifelse(predxgbboost == 0, "Perder",
+                                 ifelse(predxgbboost == 1, "Empatar", "Ganar"))
+      
+      # Calcular la matriz de confusión
+      confusion_matrix_xgb <- table(bar_test_unified$variable_result, pred_categories)
+      
+      # Calcular la precisión
+      accuracy_xgb <- sum(diag(confusion_matrix_xgb)) / sum(confusion_matrix_xgb)
+      
+      # Actualizar los mejores hiperparámetros si se encontró un modelo mejor
+      if (accuracy_xgb > best_accuracy) {
+        best_accuracy <- accuracy_xgb
+        best_params <- list(nrounds = nrounds, max_depth = max_depth, eta = eta, lambda=lambda, alpha=alpha)
+        best_confusion_matrix <- confusion_matrix_xgb
+      }
+      }
+      }
+    }
+  }
+}
+
+# Mostrar los mejores hiperparámetros y su precisión
+print("Mejores hiperparámetros:")
+print(best_params)
+print("Mejor precisión:")
+print(best_accuracy)
+print("Mayor confusion matrix:")
+print(best_confusion_matrix)
+```
+
+
+
+## REAL MADRID
+
+
+
+1.- En primer lugar unificamos el fichero train 
+
+```{r}
+pca_use_df_rma_train <- as.data.frame(pca_use_rma_train)
+
+# Crear un nuevo dataframe con la variable 753 y el archivo pca_use
+rma_train_unified <- pca_use_df_rma_train %>%
+  mutate(variable_result = rma_train$result)
+
+# Convertir la variable_result en valores numéricos
+rma_train_unified$variable_result_numeric <- ifelse(rma_train_unified$variable_result == "Perder", 0,
+                                       ifelse(rma_train_unified$variable_result == "Empatar", 1, 2))
+# Convertir la variable_result en valores numéricos
+rma_train_unified$variable_result_factor <- factor(rma_train_unified$variable_result)
+
+```
+
+2.-Aplicamos pca al test y unificamos 
+
+
+```{r}
+set.seed(21345246)
+nlpca_rma_test= pcaMethods::nlpca(data_std_rma_test, maxSteps =1000, nPcs = 15)
+fitted_data_rma_test=fitted(nlpca_rma_test,data_std_rma_test)
+
+pca_use_rma_test <- as.data.frame(fitted_data_rma_test[,1:7])
+
+# Crear un nuevo dataframe con la variable 753 y el archivo pca_use
+rma_test_unified <- pca_use_rma_test %>%
+  mutate(variable_result = rma_test$result)
+
+# Convertir la variable_result en valores numéricos
+rma_test_unified$variable_result_numeric <- ifelse(rma_train_unified$variable_result == "Perder", 0,
+                                       ifelse(rma_train_unified$variable_result == "Empatar", 1, 2))
+
+# Convertir la variable_result en valores numéricos
+rma_test_unified$variable_result_factor <- factor(rma_test_unified$variable_result)
+
+```
+### regresion ordinal
+
+
+```{r}
+
+set.seed(21345246)
+linkfunction=c("logit", "probit", "cloglog", "loglog", "cauchit", "Aranda-Ordaz", "log-gamma")
+
+# Realizar la regresión lineal
+regression_model_rma <-  clm(variable_result_factor ~ V1 + V2 + V3 + V4 + V5 + V6 + V7 , data = rma_train_unified, link="loglog")
+
+# Obtener las predicciones ordenadas
+predictions_rl <- predict(regression_model_rma, newdata = rma_test_unified, type = "class")
+
+# Convertir las predicciones a factor
+predictions_rl_factor <- factor(predictions_rl$fit, levels = levels(rma_test_unified$variable_result_factor))
+
+# Crear la matriz de confusión
+confusion_matrix <- table(rma_test_unified$variable_result_factor, predictions_rl_factor)
+
+# Mostrar la matriz de confusión
+print(confusion_matrix)
+
+```
+
+###regresión multilogistica
+
+   
+  
+```{r}
+set.seed(21345246)
+
+# Ajustar el modelo de regresión logística multinomial
+multinomial_model <- multinom(variable_result_factor ~ V1 + V2 + V3 + V4+V5+V6 +V7, data = rma_train_unified)
+
+# Realizar predicciones en rma_test_unified
+predictions_log_reg <- predict(multinomial_model, newdata = rma_test_unified)
+
+data_splines_rma_test <- data_splines_rma_test %>%
+  mutate(predictions_log_reg = predictions_log_reg)
+
+# Crear la matriz de confusión
+confusion_matrix <- table(rma_test_unified$variable_result, predictions_log_reg)
+
+# Mostrar la matriz de confusión
+print(confusion_matrix)
+
+# Calcular la precisión (accuracy)
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+
+# Mostrar la precisión
+print(accuracy)
+```
+
+###spline
+```{r}
+set.seed(21345246)
+# Crear términos de spline para las variables predictoras
+spline_V1 <- ns(rma_train_unified$V1, df=3)  # Aquí se utiliza un spline cúbico con 3 grados de libertad
+spline_V2 <- ns(rma_train_unified$V2, df=3)
+spline_V3 <- ns(rma_train_unified$V3, df=3)
+spline_V4 <- ns(rma_train_unified$V4, df=3)
+spline_V5 <- ns(rma_train_unified$V5, df=3)
+spline_V6 <- ns(rma_train_unified$V6, df=3)
+spline_V7 <- ns(rma_train_unified$V7, df=3)
+
+
+
+# Crear un data frame con los términos de spline y la variable objetivo
+data_splines_rma_train <- data.frame(spline_V1, spline_V2, spline_V3, spline_V4,spline_V5, spline_V6, spline_V7, variable_result = rma_train_unified$variable_result, variable_result_factor=rma_train_unified$variable_result_factor)
+
+# Realizar la regresión utilizando términos de spline
+regression_model_spline_rma <- multinom(variable_result ~ spline_V1 + spline_V2 + spline_V3 +spline_V4+spline_V5+spline_V6+spline_V7, data = data_splines_rma_train)
+
+# Crear términos de spline para las variables predictoras en el conjunto de prueba
+spline_V1 <- ns(rma_test_unified$V1, df=3)
+spline_V2 <- ns(rma_test_unified$V2, df=3)
+spline_V3 <- ns(rma_test_unified$V3, df=3)
+spline_V4<- ns(rma_test_unified$V4, df=3)
+spline_V5 <- ns(rma_test_unified$V5, df=3)
+spline_V6 <- ns(rma_test_unified$V6, df=3)
+spline_V7 <- ns(rma_test_unified$V7, df=3)
+
+
+# Crear un data frame con los términos de spline y la variable objetivo para el conjunto de prueba
+data_splines_rma_test <- data.frame(spline_V1, spline_V2, spline_V3, spline_V4, spline_V5, spline_V6, spline_V7, variable_result = rma_test_unified$variable_result, variable_result_factor = rma_test_unified$variable_result_factor)
+# Realizar predicciones en el conjunto de prueba
+predictions_splines <- predict(regression_model_spline_rma, newdata = data_splines_rma_test, type = "class")
+# Crear la matriz de confusión
+confusion_matrix_splines_rma <- table(data_splines_rma_test$variable_result, predictions_splines)
+print(confusion_matrix_splines_rma)
+
+```
+
+
+###svm 
+
+
+
+```{r}
+
+set.seed(21345246)
+
+# Definir una cuadrícula de valores para los hiperparámetros a explorar
+tuning_grid <- expand.grid(C =  c(0.01, 0.1, 1, 10, 100), gamma =  c(0.001, 0.01, 0.1, 1), degree=c(1,2,3,4,5,6,7,8,9,10))
+
+# Realizar la búsqueda de hiperparámetros y entrenar el modelo SVM
+best_accuracy <- 0
+best_svm_model <- NULL
+best_gamma <- NULL
+#, degree=tuning_grid$degree[i]
+for (i in 1:nrow(tuning_grid)) {
+  svm_model <- svm(variable_result_factor ~ V1 + V2 + V3 + V4 + V5 + V6 + V7, data = rma_train_unified,
+                   kernel = "linear", degree=tuning_grid$degree[i], cost = tuning_grid$C[i], gamma = tuning_grid$gamma[i])
+    
+    predictions_val <- predict(svm_model, newdata = rma_test_unified)
+    confusion_matrix_val <- table(rma_test_unified$variable_result, predictions_val)
+    accuracy_val <- sum(diag(confusion_matrix_val)) / sum(confusion_matrix_val)
+
+  if (accuracy_val > best_accuracy) {
+    best_accuracy <- accuracy_val
+    best_svm_model <- svm_model
+    best_gamma <- tuning_grid$gamma[i]
+  }
+}
+
+# Mostrar el valor de gamma seleccionado
+print(paste("Mejor valor de gamma:", best_gamma))
+
+# Mostrar el modelo con los mejores hiperparámetros
+print(best_svm_model)
+
+# Realizar predicciones en rma_test_unified
+predictions_test <- predict(best_svm_model, newdata = rma_test_unified)
+
+# Agregar las predicciones al conjunto de datos
+rma_test_unified <- cbind(rma_test_unified, predictions_test)
+
+# Calcular la matriz de confusión y precisión en los datos de prueba
+confusion_matrix_test <- table(rma_test_unified$variable_result, predictions_test)
+accuracy_test <- sum(diag(confusion_matrix_test)) / sum(confusion_matrix_test)
+
+# Mostrar la matriz de confusión y precisión en los datos de prueba
+print(confusion_matrix_test)
+print(accuracy_test)
+
+```
+### redes neuronales
+
+
+
+```{r}
+set.seed(21345246)
+# Valores de hiperparámetros
+hidden_layers <- list(c(4, 2), c(6, 3), c(8, 4),c(16,8), c(32,16), c(64,32), c(100,50))
+optimization_algorithms <- c( "rprop-", "rprop+", "sag", "slr")
+error_functions=c('sse')
+threshold=c(0.01, 0.1, 0.2, 0.3,0.4,0.5,0.6,0.7,0.8,0.9)
+best_accuracy=0
+# Realizar la búsqueda de hiperparámetros
+for (hidden in hidden_layers) {
+  for (algorithm in optimization_algorithms) {
+    for (error in error_functions) {
+      for (threshold in threshold) {
+      modelo_neural_net=neuralnet(variable_result_factor ~ V1+V2+V3+V4+V5+V6+V7, data=rma_train_unified, hidden=hidden, algorithm = algorithm, threshold = 0.1)
+pred <- predict(modelo_neural_net, rma_test_unified)
+labels <- c("perder", "empatar", "ganar")
+prediction_label <- data.frame(max.col(pred)) %>%     
+mutate(pred=labels[max.col.pred.]) %>% select(2) %>% unlist()
+confusion_matrix= table(rma_test_unified$variable_result, prediction_label)
+      
+print(confusion_matrix)
+print(list(hidden = hidden, algorithm = algorithm, threshold = threshold))
+      }
+    }
+      }
+}
+
+```
+
+###xgb boost
+
+```{r}
+rma_train_unified_mat <- 
+  rma_train_unified %>% 
+  select(-c(variable_result,variable_result_numeric, variable_result_factor)) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = rma_train_unified$variable_result_numeric)
+
+rma_test_unified_mat <- 
+  rma_test_unified %>% 
+  select(c(V1,V2,V3,V4,V5,V6,V7)) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = rma_test_unified$variable_result_numeric)
+```
+
+```{r}
+library(xgboost)
+set.seed(21345246)
+
+# Valores de hiperparámetros
+nrounds_vals <- c(10, 5, 100)
+max_depth_vals <- c(2, 4, 6)
+eta_vals <- c(0.1, 0.3, 0.5)
+lambda_vals <- c(0, 0.1, 1)  # Valores para la regularización L2 (lambda)
+alpha_vals <- c(0, 0.1, 1)   # Valores para la regularización L1 (alpha)
+
+# Inicializar variables para almacenar el mejor modelo y su precisión
+best_accuracy <- 0
+best_params <- NULL
+
+# Realizar la búsqueda de hiperparámetros
+for (nrounds in nrounds_vals) {
+  for (max_depth in max_depth_vals) {
+    for (eta in eta_vals) {
+      for (lambda in lambda_vals){
+        for (alpha in alpha_vals){
+      # Crear el modelo XGBoost con los hiperparámetros actuales
+      xgb_model <- xgboost(data = rma_train_unified_mat, objective = "multi:softmax", num_class = 3,
+                           nrounds = nrounds, max_depth = max_depth, eta = eta, lambda = lambda, alpha = alpha)
+      
+      # Realizar las predicciones en el conjunto de prueba
+      predxgbboost <- predict(xgb_model, rma_test_unified_mat)
+      
+      # Convertir las predicciones en categorías
+      pred_categories <- ifelse(predxgbboost == 0, "Perder",
+                                 ifelse(predxgbboost == 1, "Empatar", "Ganar"))
+      
+      # Calcular la matriz de confusión
+      confusion_matrix <- table(rma_test_unified$variable_result, pred_categories)
+      
+      # Calcular la precisión
+      accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+      
+      # Actualizar los mejores hiperparámetros si se encontró un modelo mejor
+      if (accuracy > best_accuracy) {
+        best_accuracy <- accuracy
+        best_params <- list(nrounds = nrounds, max_depth = max_depth, eta = eta, lambda=lambda, alpha=alpha)
+        best_confusion_matrix <- confusion_matrix
+      }
+      }
+      }
+    }
+  }
+}
+
+# Mostrar los mejores hiperparámetros y su precisión
+print("Mejores hiperparámetros:")
+print(best_params)
+print("Mejor precisión:")
+print(best_accuracy)
+print("Mayor confusion matrix:")
+print(best_confusion_matrix)
+```
+
+
+## ATLETICO DE MADRID 
+
+
+
+1.- En primer lugar unificamos el fichero train 
+
+```{r}
+pca_use_df_atm_train <- as.data.frame(pca_use_atm_train)
+
+# Crear un nuevo dataframe con la variable 753 y el archivo pca_use
+atm_train_unified <- pca_use_df_atm_train %>%
+  mutate(variable_result = atm_train$result)
+
+# Convertir la variable_result en valores numéricos
+atm_train_unified$variable_result_numeric <- ifelse(atm_train_unified$variable_result == "Perder", 0,
+                                       ifelse(atm_train_unified$variable_result == "Empatar", 1, 2))
+
+# Convertir la variable_result en valores numéricos
+atm_train_unified$variable_result_factor <- factor(atm_train_unified$variable_result)
+
+```
+
+2.-Aplicamos pca al test y unificamos 
+
+
+```{r}
+set.seed(21345246)
+nlpca_atm_test= pcaMethods::nlpca(data_std_atm_test, maxSteps =1000, nPcs = 15)
+fitted_data_atm_test=fitted(nlpca_atm_test,data_std_atm_test)
+
+pca_use_atm_test <- as.data.frame(fitted_data_atm_test[,1:7])
+
+# Crear un nuevo dataframe con la variable 753 y el archivo pca_use
+atm_test_unified <- pca_use_atm_test %>%
+  mutate(variable_result = atm_test$result)
+
+# Convertir la variable_result en valores numéricos
+atm_test_unified$variable_result_numeric <- ifelse(atm_train_unified$variable_result == "Perder", 0,
+                                       ifelse(atm_train_unified$variable_result == "Empatar", 1, 2))
+# Convertir la variable_result en valores numéricos
+atm_test_unified$variable_result_factor <- factor(atm_test_unified$variable_result)
+```
+###regresion ordinal
+
+
+```{r}
+set.seed(21345246)
+
+linkfunction=c("logit", "probit", "cloglog", "loglog", "cauchit", "Aranda-Ordaz", "log-gamma")
+
+# Realizar la regresión lineal
+regression_model_atm <-  clm(variable_result_factor ~ V1 + V2 + V3 + V4 + V5 + V6 + V7, data = atm_train_unified, link="cauchit")
+
+# Obtener las predicciones ordenadas
+predictions_rl <- predict(regression_model_atm, newdata = atm_test_unified, type = "class")
+
+# Convertir las predicciones a factor
+predictions_rl_factor <- factor(predictions_rl$fit, levels = levels(atm_test_unified$variable_result_factor))
+
+# Crear la matriz de confusión
+confusion_matrix <- table(atm_test_unified$variable_result_factor, predictions_rl_factor)
+
+# Mostrar la matriz de confusión
+print(confusion_matrix)
+
+```
+
+
+### Regresión multilogistica
+
+```{r}
+set.seed(21345246)
+
+# Ajustar el modelo de regresión logística multinomial
+multinomial_model <- multinom(factor(variable_result) ~ V1 + V2 + V3 + V4 + V5 + V6 + V7, data = atm_train_unified)
+
+# Realizar predicciones en atm_test_unified
+predictions_log_reg <- predict(multinomial_model, newdata = atm_test_unified)
+
+data_splines_atm_test <- data_splines_atm_test %>%
+  mutate(predictions_log_reg = predictions_log_reg)
+
+# Crear la matriz de confusión
+confusion_matrix <- table(atm_test_unified$variable_result, predictions_log_reg)
+
+# Mostrar la matriz de confusión
+print(confusion_matrix)
+
+# Calcular la precisión (accuracy)
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+
+# Mostrar la precisión
+print(accuracy)
+```
+###spline
+```{r}
+set.seed(21345246)
+# Crear términos de spline para las variables predictoras
+spline_V1 <- ns(atm_train_unified$V1, df=3)  # Aquí se utiliza un spline cúbico con 3 grados de libertad
+spline_V2 <- ns(atm_train_unified$V2, df=3)
+spline_V3 <- ns(atm_train_unified$V3, df=3)
+spline_V4 <- ns(atm_train_unified$V4, df=3)
+spline_V5 <- ns(atm_train_unified$V5, df=3)
+spline_V6 <- ns(atm_train_unified$V6, df=3)
+spline_V7 <- ns(atm_train_unified$V7, df=3)
+
+
+# Crear un data frame con los términos de spline y la variable objetivo
+data_splines_atm_train <- data.frame(spline_V1, spline_V2, spline_V3, spline_V4,spline_V5, spline_V6, spline_V7, variable_result = atm_train_unified$variable_result, variable_result_factor=atm_train_unified$variable_result_factor)
+
+# Realizar la regresión utilizando términos de spline
+regression_model_spline_atm <- multinom(variable_result ~ spline_V1 + spline_V2 + spline_V3 +spline_V4+spline_V5+spline_V6+spline_V7, data = data_splines_atm_train)
+
+# Crear términos de spline para las variables predictoras en el conjunto de prueba
+spline_V1 <- ns(atm_test_unified$V1, df=3)
+spline_V2 <- ns(atm_test_unified$V2, df=3)
+spline_V3 <- ns(atm_test_unified$V3, df=3)
+spline_V4<- ns(atm_test_unified$V4, df=3)
+spline_V5 <- ns(atm_test_unified$V5, df=3)
+spline_V6 <- ns(atm_test_unified$V6, df=3)
+spline_V7 <- ns(atm_test_unified$V7, df=3)
+
+# Crear un data frame con los términos de spline y la variable objetivo para el conjunto de prueba
+data_splines_atm_test <- data.frame(spline_V1, spline_V2, spline_V3, spline_V4, spline_V5, spline_V6, spline_V7, variable_result = atm_test_unified$variable_result, variable_result_factor = atm_test_unified$variable_result_factor)
+# Realizar predicciones en el conjunto de prueba
+predictions_splines <- predict(regression_model_spline_atm, newdata = data_splines_atm_test, type = "class")
+# Crear la matriz de confusión
+confusion_matrix_splines_atm <- table(data_splines_atm_test$variable_result, predictions_splines)
+print(confusion_matrix_splines_atm)
+
+```
+
+###svm 
+
+```{r}
+set.seed(21345246)
+
+# Definir una cuadrícula de valores para los hiperparámetros a explorar
+tuning_grid <- expand.grid(C =  c(0.01, 0.1, 1, 10, 100), gamma =  c(0.001, 0.01, 0.1, 1), degree=c(1,2,3,4,5,6,7,8,9,10))
+
+# Realizar la búsqueda de hiperparámetros y entrenar el modelo SVM
+best_accuracy <- 0
+best_svm_model <- NULL
+best_gamma <- NULL
+#,degree=tuning_grid$degree[i]
+for (i in 1:nrow(tuning_grid)) {
+  svm_model <- svm(factor(variable_result) ~ V1 + V2 + V3 + V4 + V5 + V6 + V7, data = atm_train_unified,
+                   kernel = "sigmoid",degree=tuning_grid$degree[i], cost = tuning_grid$C[i], gamma = tuning_grid$gamma[i])
+    
+    predictions_val <- predict(svm_model, newdata = atm_test_unified)
+    confusion_matrix_val <- table(atm_test_unified$variable_result, predictions_val)
+    accuracy_val <- sum(diag(confusion_matrix_val)) / sum(confusion_matrix_val)
+
+  if (accuracy_val > best_accuracy) {
+    best_accuracy <- accuracy_val
+    best_svm_model <- svm_model
+    best_gamma <- tuning_grid$gamma[i]
+  }
+}
+
+# Mostrar el valor de gamma seleccionado
+print(paste("Mejor valor de gamma:", best_gamma))
+
+# Mostrar el modelo con los mejores hiperparámetros
+print(best_svm_model)
+
+# Realizar predicciones en atm_test_unified
+predictions_test <- predict(best_svm_model, newdata = atm_test_unified)
+
+# Agregar las predicciones al conjunto de datos
+atm_test_unified <- cbind(atm_test_unified, predictions_test)
+
+# Calcular la matriz de confusión y precisión en los datos de prueba
+confusion_matrix_test <- table(atm_test_unified$variable_result, predictions_test)
+accuracy_test <- sum(diag(confusion_matrix_test)) / sum(confusion_matrix_test)
+
+# Mostrar la matriz de confusión y precisión en los datos de prueba
+print(confusion_matrix_test)
+print(accuracy_test)
+```
+
+###redes neuronales 
+
+
+```{r}
+set.seed(21345246)
+# Valores de hiperparámetros
+hidden_layers <- list(c(4, 2), c(6, 3), c(8, 4), c(16,8), c(32,16), c(50,25), c(100,50))
+optimization_algorithms <- c( "rprop-", "rprop+", "sag", "slr")
+error_functions=c('sse')
+threshold=c(0.01, 0.1, 0.25, 0.5)
+best_accuracy=0
+# Realizar la búsqueda de hiperparámetros
+for (hidden in hidden_layers) {
+  for (algorithm in optimization_algorithms) {
+    for (error in error_functions) {
+      for (threshold in threshold) {
+      modelo_neural_net=neuralnet(variable_result ~ V1+V2+V3+V4+V5, data=atm_train_unified, hidden=hidden, algorithm = algorithm, err.fct = error, threshold = threshold)
+pred <- predict(modelo_neural_net, atm_test_unified)
+labels <- c("perder", "empatar", "ganar")
+prediction_label <- data.frame(max.col(pred)) %>%     
+mutate(pred=labels[max.col.pred.]) %>% select(2) %>% unlist()
+confusion_matrix= table(atm_test_unified$variable_result, prediction_label)
+      
+print(confusion_matrix)
+print(list(hidden = hidden, algorithm = algorithm, threshold=threshold))# Calcular la precisión
+
+      }
+    }
+      }
+}
+
+```
+
+###xgb boost
+```{r}
+atm_train_unified_mat <- 
+  atm_train_unified %>% 
+  select(-c(variable_result,variable_result_numeric,variable_result_factor)) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = atm_train_unified$variable_result_numeric)
+
+atm_test_unified_mat <- 
+  atm_test_unified %>% 
+  select(c(V1,V2,V3,V4,V5,V6,V7)) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = atm_test_unified$variable_result_numeric)
+```
+
+```{r}
+library(xgboost)
+set.seed(21345246)
+
+# Valores de hiperparámetros
+nrounds_vals <- c(10, 5, 100)
+max_depth_vals <- c(2, 4, 6)
+eta_vals <- c(0.1, 0.3, 0.5)
+lambda_vals <- c(0, 0.1, 1)  # Valores para la regularización L2 (lambda)
+alpha_vals <- c(0, 0.1, 1)   # Valores para la regularización L1 (alpha)
+
+# Inicializar variables para almacenar el mejor modelo y su precisión
+best_accuracy <- 0
+best_params <- NULL
+
+# Realizar la búsqueda de hiperparámetros
+for (nrounds in nrounds_vals) {
+  for (max_depth in max_depth_vals) {
+    for (eta in eta_vals) {
+      for (lambda in lambda_vals){
+        for (alpha in alpha_vals){
+      # Crear el modelo XGBoost con los hiperparámetros actuales
+      xgb_model <- xgboost(data = atm_train_unified_mat, objective = "multi:softmax", num_class = 3,
+                           nrounds = nrounds, max_depth = max_depth, eta = eta, lambda = lambda, alpha = alpha)
+      
+      # Realizar las predicciones en el conjunto de prueba
+      predxgbboost <- predict(xgb_model, atm_test_unified_mat)
+      
+      # Convertir las predicciones en categorías
+      pred_categories <- ifelse(predxgbboost == 0, "Perder",
+                                 ifelse(predxgbboost == 1, "Empatar", "Ganar"))
+      
+      # Calcular la matriz de confusión
+      confusion_matrix <- table(atm_test_unified$variable_result, pred_categories)
+      
+      # Calcular la precisión
+      accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+      
+      # Actualizar los mejores hiperparámetros si se encontró un modelo mejor
+      if (accuracy > best_accuracy) {
+        best_accuracy <- accuracy
+        best_params <- list(nrounds = nrounds, max_depth = max_depth, eta = eta, lambda=lambda, alpha=alpha)
+        best_confusion_matrix <- confusion_matrix
+      }
+      }
+      }
+    }
+  }
+}
+
+# Mostrar los mejores hiperparámetros y su precisión
+print("Mejores hiperparámetros:")
+print(best_params)
+print("Mejor precisión:")
+print(best_accuracy)
+print("Mayor confusion matrix:")
+print(best_confusion_matrix)
+```
+
+
+
+
+## SEVILLA
+
+
+
+1.- En primer lugar unificamos el fichero train 
+
+```{r}
+pca_use_df_sfc_train <- as.data.frame(pca_use_sfc_train)
+
+# Crear un nuevo dataframe con la variable 753 y el archivo pca_use
+sfc_train_unified <- pca_use_df_sfc_train %>%
+  mutate(variable_result = sfc_train$result)
+
+# Convertir la variable_result en valores numéricos
+sfc_train_unified$variable_result_numeric <- ifelse(sfc_train_unified$variable_result == "Perder", 0,
+                                       ifelse(sfc_train_unified$variable_result == "Empatar", 1, 2))
+# Convertir la variable_result en valores numéricos
+sfc_train_unified$variable_result_factor <- factor(sfc_train_unified$variable_result)
+
+```
+
+2.-Aplicamos pca al test y unificamos 
+
+
+```{r}
+set.seed(21345246)
+nlpca_sfc_test= pcaMethods::nlpca(data_std_sfc_test, maxSteps =1000, nPcs = 15)
+fitted_data_sfc_test=fitted(nlpca_sfc_test,data_std_sfc_test)
+
+pca_use_sfc_test <- as.data.frame(fitted_data_sfc_test[,1:6])
+
+# Crear un nuevo dataframe con la variable 753 y el archivo pca_use
+sfc_test_unified <- pca_use_sfc_test %>%
+  mutate(variable_result = sfc_test$result)
+
+# Convertir la variable_result en valores numéricos
+sfc_test_unified$variable_result_numeric <- ifelse(sfc_train_unified$variable_result == "Perder", 0,
+                                       ifelse(sfc_train_unified$variable_result == "Empatar", 1, 2))
+
+# Convertir la variable_result en valores numéricos
+sfc_test_unified$variable_result_factor <- factor(sfc_test_unified$variable_result)
+
+```
+### regresion ordinal
+
+
+```{r}
+set.seed(21345246)
+linkfunction=c("logit", "probit", "cloglog", "loglog", "cauchit", "Aranda-Ordaz", "log-gamma")
+
+# Realizar la regresión lineal
+regression_model_sfc <-  clm(variable_result_factor ~ V1 + V2 + V3 + V4 + V5 + V6 , data = sfc_train_unified, link = "cauchit")
+
+# Obtener las predicciones ordenadas
+predictions_rl <- predict(regression_model_sfc, newdata = sfc_test_unified, type = "class")
+# Convertir las predicciones a factor
+predictions_rl_factor <- factor(predictions_rl$fit, levels = levels(sfc_test_unified$variable_result_factor))
+
+# Crear la matriz de confusión
+confusion_matrix <- table(sfc_test_unified$variable_result_factor, predictions_rl_factor)
+
+# Mostrar la matriz de confusión
+print(confusion_matrix)
+
+```
+
+### Regresión multilogistica
+
+```{r}
+set.seed(21345246)
+
+# Ajustar el modelo de regresión logística multinomial
+multinomial_model <- multinom(factor(variable_result) ~ V1 + V2 + V3 + V4 + V5 + V6 , data = sfc_train_unified)
+
+# Realizar predicciones en sfc_test_unified
+predictions_log_reg <- predict(multinomial_model, newdata = sfc_test_unified)
+
+data_splines_sfc_test <- data_splines_sfc_test %>%
+  mutate(predictions_log_reg = predictions_log_reg)
+
+# Crear la matriz de confusión
+confusion_matrix <- table(sfc_test_unified$variable_result, predictions_log_reg)
+
+# Mostrar la matriz de confusión
+print(confusion_matrix)
+
+# Calcular la precisión (accuracy)
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+
+# Mostrar la precisión
+print(accuracy)
+```
+
+### spline
+
+```{r}
+set.seed(21345246)
+# Crear términos de spline para las variables predictoras
+spline_V1 <- ns(sfc_train_unified$V1, df=3)  # Aquí se utiliza un spline cúbico con 3 grados de libertad
+spline_V2 <- ns(sfc_train_unified$V2, df=3)
+spline_V3 <- ns(sfc_train_unified$V3, df=3)
+spline_V4 <- ns(sfc_train_unified$V4, df=3)
+spline_V5 <- ns(sfc_train_unified$V5, df=3)
+spline_V6 <- ns(sfc_train_unified$V6, df=3)
+
+
+# Crear un data frame con los términos de spline y la variable objetivo
+data_splines_sfc_train <- data.frame(spline_V1, spline_V2, spline_V3, spline_V4,spline_V5, spline_V6, variable_result = sfc_train_unified$variable_result, variable_result_factor=sfc_train_unified$variable_result_factor)
+
+# Realizar la regresión utilizando términos de spline
+regression_model_spline_sfc <- multinom(variable_result ~ spline_V1 + spline_V2 + spline_V3 +spline_V4+spline_V5+spline_V6, data = data_splines_sfc_train)
+
+# Crear términos de spline para las variables predictoras en el conjunto de prueba
+spline_V1 <- ns(sfc_test_unified$V1, df=3)
+spline_V2 <- ns(sfc_test_unified$V2, df=3)
+spline_V3 <- ns(sfc_test_unified$V3, df=3)
+spline_V4<- ns(sfc_test_unified$V4, df=3)
+spline_V5 <- ns(sfc_test_unified$V5, df=3)
+spline_V6 <- ns(sfc_test_unified$V6, df=3)
+
+# Crear un data frame con los términos de spline y la variable objetivo para el conjunto de prueba
+data_splines_sfc_test <- data.frame(spline_V1, spline_V2, spline_V3, spline_V4, spline_V5, spline_V6, variable_result = sfc_test_unified$variable_result, variable_result_factor = sfc_test_unified$variable_result_factor)
+# Realizar predicciones en el conjunto de prueba
+predictions_splines <- predict(regression_model_spline_sfc, newdata = data_splines_sfc_test, type = "class")
+# Crear la matriz de confusión
+confusion_matrix_splines_sfc <- table(data_splines_sfc_test$variable_result, predictions_splines)
+print(confusion_matrix_splines_sfc)
+
+```
+
+
+
+###svm 
+
+```{r}
+
+set.seed(21345246)
+
+# Definir una cuadrícula de valores para los hiperparámetros a explorar
+tuning_grid <- expand.grid(C =  c(0.01, 0.1, 1, 10, 100), gamma =  c(0.001, 0.01, 0.1, 1), degree=c(1,2,3,4,5,6,7,8,9,10))
+
+# Realizar la búsqueda de hiperparámetros y entrenar el modelo SVM
+best_accuracy <- 0
+best_svm_model <- NULL
+best_gamma <- NULL
+#, degree=tuning_grid$degree[i]
+for (i in 1:nrow(tuning_grid)) {
+  svm_model <- svm(factor(variable_result) ~ V1 + V2 + V3 + V4 + V5 + V6 , data = sfc_train_unified,
+                   kernel = "polynomial", degree=tuning_grid$degree[i],  cost = tuning_grid$C[i], gamma = tuning_grid$gamma[i])
+  
+predictions_val <- predict(svm_model, newdata = sfc_test_unified)
+confusion_matrix_val <- table(sfc_test_unified$variable_result, predictions_val)
+accuracy_val <- sum(diag(confusion_matrix_val)) / sum(confusion_matrix_val)
+  
+  if (accuracy_val > best_accuracy) {
+    best_accuracy <- accuracy_val
+    best_svm_model <- svm_model
+    best_gamma <- tuning_grid$gamma[i]
+  }
+}
+
+# Mostrar el modelo con los mejores hiperparámetros
+print(best_svm_model)
+
+# Mostrar el valor de gamma seleccionado
+print(paste("Mejor valor de gamma:", best_gamma))
+
+# Realizar predicciones en sfc_test_unified
+predictions_test <- predict(best_svm_model, newdata = sfc_test_unified)
+
+# Agregar las predicciones al conjunto de datos
+sfc_test_unified <- cbind(sfc_test_unified, predictions_test)
+
+# Calcular la matriz de confusión y precisión en los datos de prueba
+confusion_matrix_test <- table(sfc_test_unified$variable_result, predictions_test)
+accuracy_test <- sum(diag(confusion_matrix_test)) / sum(confusion_matrix_test)
+
+# Mostrar la matriz de confusión y precisión en los datos de prueba
+print(confusion_matrix_test)
+print(accuracy_test)
+
+```
+
+
+
+### redes neuronales
+
+
+```{r}
+set.seed(21345246)
+
+# Valores de hiperparámetros
+hidden_layers <- list(c(4, 2), c(6, 3), c(8, 4),c(16,8), c(32,16),c(64,32),c(100,50))
+optimization_algorithms <- c( "rprop-", "rprop+", "sag", "slr")
+error_functions=c('sse')
+threshold=c(0.01, 0.1, 0.25, 0.5)
+best_accuracy=0
+# Realizar la búsqueda de hiperparámetros
+for (hidden in hidden_layers) {
+  for (algorithm in optimization_algorithms) {
+    for (error in error_functions) {
+      for (threshold in threshold) {
+
+      modelo_neural_net=neuralnet(variable_result_factor ~ V1+V2+V3+V4+V5+V6, data=sfc_train_unified, hidden=hidden, algorithm = algorithm, err.fct = error, threshold = threshold)
+pred <- predict(modelo_neural_net, sfc_test_unified)
+labels <- c("perder", "empatar", "ganar")
+prediction_label <- data.frame(max.col(pred)) %>%     
+mutate(pred=labels[max.col.pred.]) %>% select(2) %>% unlist()
+confusion_matrix= table(sfc_test_unified$variable_result, prediction_label)
+      
+      # Calcular la precisión
+      accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+      
+      # Actualizar los mejores hiperparámetros si se encontró un modelo mejor
+      if (accuracy > best_accuracy) {
+        best_accuracy <- accuracy
+        best_params <- list(hidden = hidden, algorithm = algorithm, threshold=threshold)
+        best_confusion_matrix <- confusion_matrix
+      }
+    }
+      }
+  }
+          
+      }
+
+# Mostrar los mejores hiperparámetros y su precisión
+print("Mejores hiperparámetros:")
+print(best_params)
+print("Mayor confusion matrix:")
+print(best_confusion_matrix)
+print("Mejor precisión:")
+print(best_accuracy)
+```
+
+
+### xgb boost
+
+```{r}
+sfc_train_unified_mat <- 
+  sfc_train_unified %>% 
+  select(-c(variable_result, variable_result_numeric, variable_result_factor)) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = sfc_train_unified$variable_result_numeric)
+
+sfc_test_unified_mat <- 
+  sfc_test_unified %>% 
+  select(c(V1,V2,V3,V4,V5,V6)) %>% 
+  as.matrix() %>% 
+  xgb.DMatrix(data = ., label = sfc_test_unified$variable_result_numeric)
+```
+
+```{r}
+library(xgboost)
+set.seed(21345246)
+
+# Valores de hiperparámetros
+nrounds_vals <- c(10, 5, 100)
+max_depth_vals <- c(2, 4, 6)
+eta_vals <- c(0.1, 0.3, 0.5)
+lambda_vals <- c(0, 0.1, 1)  # Valores para la regularización L2 (lambda)
+alpha_vals <- c(0, 0.1, 1)   # Valores para la regularización L1 (alpha)
+
+# Inicializar variables para almacenar el mejor modelo y su precisión
+best_accuracy <- 0
+best_params <- NULL
+
+# Realizar la búsqueda de hiperparámetros
+for (nrounds in nrounds_vals) {
+  for (max_depth in max_depth_vals) {
+    for (eta in eta_vals) {
+      for (lambda in lambda_vals){
+        for (alpha in alpha_vals){
+      # Crear el modelo XGBoost con los hiperparámetros actuales
+      xgb_model <- xgboost(data = sfc_train_unified_mat, objective = "multi:softmax", num_class = 3,
+                           nrounds = nrounds, max_depth = max_depth, eta = eta, lambda = lambda, alpha = alpha)
+      
+      # Realizar las predicciones en el conjunto de prueba
+      predxgbboost <- predict(xgb_model, sfc_test_unified_mat)
+      
+      # Convertir las predicciones en categorías
+      pred_categories <- ifelse(predxgbboost == 0, "Perder",
+                                 ifelse(predxgbboost == 1, "Empatar", "Ganar"))
+      
+      # Calcular la matriz de confusión
+      confusion_matrix <- table(sfc_test_unified$variable_result, pred_categories)
+      
+      # Calcular la precisión
+      accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+      
+      # Actualizar los mejores hiperparámetros si se encontró un modelo mejor
+      if (accuracy > best_accuracy) {
+        best_accuracy <- accuracy
+        best_params <- list(nrounds = nrounds, max_depth = max_depth, eta = eta, lambda=lambda, alpha=alpha)
+        best_confusion_matrix <- confusion_matrix
+      }
+      }
+      }
+    }
+  }
+}
+
+# Mostrar los mejores hiperparámetros y su precisión
+print("Mejores hiperparámetros:")
+print(best_params)
+print("Mejor precisión:")
+print(best_accuracy)
+print("Mayor confusion matrix:")
+print(best_confusion_matrix)
+```
